@@ -1,0 +1,14 @@
+{
+  "name": "Math Wizard Pro",
+  "short_name": "Math Wizard Pro",
+  "description": "AI-powered adaptive math learning for K-12.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F0FF",
+  "theme_color": "#7C4DFF",
+  "orientation": "portrait-primary",
+  "categories": ["education"],
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

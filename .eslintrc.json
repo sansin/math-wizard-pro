@@ -1,0 +1,4 @@
+{
+  "$comment": "Superseded by eslint.config.mjs — flat config used with ESLint 9. This file kept empty for backwards compat with editors that look for it; safe to delete locally.",
+  "ignorePatterns": ["**/*"]
+}

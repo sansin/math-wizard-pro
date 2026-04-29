@@ -1,0 +1,96 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* KaTeX styles */
+@import 'katex/dist/katex.min.css';
+
+/* ─── Tokens ───────────────────────────────────────────────────────── */
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Cal Sans', 'Inter', system-ui, sans-serif;
+
+  --bg: 252 250 255;
+  --bg-elev: 255 255 255;
+  --fg: 21 21 43;
+  --fg-muted: 107 107 133;
+  --border: 232 230 240;
+  --ring: 124 77 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg: 12 12 31;
+    --bg-elev: 21 21 43;
+    --fg: 247 247 251;
+    --fg-muted: 184 184 204;
+    --border: 51 51 74;
+  }
+}
+
+html {
+  font-family: var(--font-sans);
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% -8%, rgb(244 240 255 / 0.9) 0%, transparent 35%),
+    radial-gradient(circle at 92% 92%, rgb(255 235 220 / 0.8) 0%, transparent 30%),
+    rgb(var(--bg));
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgb(124 77 255 / 0.18);
+  color: rgb(var(--fg));
+}
+
+/* ─── Utilities ────────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--border)) 0%,
+    rgb(var(--bg-elev)) 50%,
+    rgb(var(--border)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 0.5rem;
+}
+
+.glass {
+  background: rgb(255 255 255 / 0.65);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgb(255 255 255 / 0.5);
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* ─── Reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Focus rings ──────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgb(var(--ring));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ─── KaTeX size adjustment for kids' comfort ─────────────────────── */
+.katex { font-size: 1.05em; }
+.katex-display { margin: 0.6em 0; }

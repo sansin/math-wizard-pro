@@ -1,0 +1,42 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { signInLegacy, fetchLegacyProfile, fetchLegacyAnswers, gradeToBand } from '@/lib/firebase/legacy';
+
+export const runtime = 'nodejs';
+
+const Body = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+export async function POST(req: Request) {
+  let body: z.infer<typeof Body>;
+  try { body = Body.parse(await req.json()); }
+  catch (e) { return NextResponse.json({ error: 'invalid', detail: (e as Error).message }, { status: 400 }); }
+
+  let signed;
+  try {
+    signed = await signInLegacy(body.email, body.password);
+  } catch (e) {
+    return NextResponse.json({ error: 'classic-auth-failed', detail: (e as Error).message }, { status: 401 });
+  }
+
+  const profile = await fetchLegacyProfile(signed.localId, signed.idToken);
+  if (!profile) {
+    return NextResponse.json({ error: 'classic-no-profile' }, { status: 404 });
+  }
+
+  const answers = await fetchLegacyAnswers(signed.localId, signed.idToken, 5000).catch(() => []);
+
+  return NextResponse.json({
+    preview: {
+      legacyUid: signed.localId,
+      email: profile.email || body.email,
+      displayName: profile.name,
+      gradeBand: gradeToBand(profile.grade),
+      totalXP: profile.totalXP,
+      answerCount: answers.length,
+      level: profile.level,
+    },
+  });
+}

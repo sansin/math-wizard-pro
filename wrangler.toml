@@ -1,0 +1,15 @@
+# Cloudflare Pages config (optional — only needed if deploying via Wrangler).
+# For most users the GitHub integration in the Cloudflare dashboard is simpler:
+#   1. New project → Connect to Git → choose math-wizard-pro repo
+#   2. Framework preset: Next.js
+#   3. Build command: npm run build
+#   4. Output directory: .next
+#   5. Add env vars from .env.example
+
+name = "math-wizard-pro"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".next"
+
+[vars]
+# Public env vars only — secrets go via the Cloudflare dashboard or `wrangler secret`
