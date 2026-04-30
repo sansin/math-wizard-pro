@@ -48,10 +48,15 @@ export const claudeProvider: ProviderClient = {
       throw err('timeout', `network: ${(e as Error).message}`);
     }
 
-    if (res.status === 429) throw err('rate-limit', 'claude rate limited');
-    if (res.status === 401) throw err('auth', 'claude auth failed', false);
-    if (res.status >= 500) throw err('server', `claude server ${res.status}`);
-    if (!res.ok) throw err('bad-request', `claude ${res.status}`, false);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '<unreadable>');
+      const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
+      console.error(`[claude] ${res.status} model=${model}: ${trimmed}`);
+      if (res.status === 429) throw err('rate-limit', `claude 429: ${trimmed}`);
+      if (res.status === 401 || res.status === 403) throw err('auth', `claude ${res.status}: ${trimmed}`, false);
+      if (res.status >= 500) throw err('server', `claude ${res.status}: ${trimmed}`);
+      throw err('bad-request', `claude ${res.status}: ${trimmed}`, false);
+    }
 
     const data = (await res.json()) as {
       content?: Array<{ type: string; text?: string }>;

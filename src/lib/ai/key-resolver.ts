@@ -27,6 +27,13 @@ export interface ResolvedKeys {
 const DAILY_SHARED_LIMIT = parseInt(process.env.SHARED_KEY_DAILY_LIMIT ?? '50', 10);
 
 function adminKeys(): Partial<Record<AIProviderId, string>> {
+  // Cloudflare needs both account ID + token; combine into the
+  // `accountId:token` format the provider expects.
+  const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const cfToken = process.env.CLOUDFLARE_API_TOKEN;
+  const cloudflareCombined =
+    cfAccount && cfToken ? `${cfAccount}:${cfToken}` : undefined;
+
   return {
     gemini: process.env.GEMINI_API_KEY || undefined,
     claude: process.env.ANTHROPIC_API_KEY || undefined,
@@ -34,6 +41,10 @@ function adminKeys(): Partial<Record<AIProviderId, string>> {
     deepseek: process.env.DEEPSEEK_API_KEY || undefined,
     groq: process.env.GROQ_API_KEY || undefined,
     cerebras: process.env.CEREBRAS_API_KEY || undefined,
+    cloudflare: cloudflareCombined,
+    openrouter: process.env.OPENROUTER_API_KEY || undefined,
+    mistral: process.env.MISTRAL_API_KEY || undefined,
+    huggingface: process.env.HUGGINGFACE_API_KEY || undefined,
   };
 }
 

@@ -2,8 +2,9 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-/* KaTeX styles */
-@import 'katex/dist/katex.min.css';
+/* KaTeX styles are imported from src/app/layout.tsx so they don't
+   conflict with Turbopack's @import-must-be-first rule after Tailwind
+   inlines its base/components/utilities. */
 
 /* ─── Tokens ───────────────────────────────────────────────────────── */
 :root {
@@ -18,14 +19,16 @@
   --ring: 124 77 255;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) {
-    --bg: 12 12 31;
-    --bg-elev: 21 21 43;
-    --fg: 247 247 251;
-    --fg-muted: 184 184 204;
-    --border: 51 51 74;
-  }
+/* Dark mode is opt-in (add .dark class to <html>), not auto from
+   prefers-color-scheme. The auto behavior was inverting fg/bg in inputs
+   for users with system dark mode. Re-enable when we have proper dark
+   mode coverage across all components. */
+.dark {
+  --bg: 12 12 31;
+  --bg-elev: 21 21 43;
+  --fg: 247 247 251;
+  --fg-muted: 184 184 204;
+  --border: 51 51 74;
 }
 
 html {

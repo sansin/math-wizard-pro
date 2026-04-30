@@ -42,10 +42,15 @@ export const openaiProvider: ProviderClient = {
       throw err('timeout', `network: ${(e as Error).message}`);
     }
 
-    if (res.status === 429) throw err('rate-limit', 'openai rate limited');
-    if (res.status === 401) throw err('auth', 'openai auth failed', false);
-    if (res.status >= 500) throw err('server', `openai server ${res.status}`);
-    if (!res.ok) throw err('bad-request', `openai ${res.status}`, false);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '<unreadable>');
+      const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
+      console.error(`[openai] ${res.status}: ${trimmed}`);
+      if (res.status === 429) throw err('rate-limit', `openai 429: ${trimmed}`);
+      if (res.status === 401 || res.status === 403) throw err('auth', `openai ${res.status}: ${trimmed}`, false);
+      if (res.status >= 500) throw err('server', `openai ${res.status}: ${trimmed}`);
+      throw err('bad-request', `openai ${res.status}: ${trimmed}`, false);
+    }
 
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;

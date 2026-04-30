@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+// KaTeX styles loaded here (not via @import in globals.css) so Turbopack
+// doesn't complain about @import after Tailwind's inlined rules.
+import 'katex/dist/katex.min.css';
 
 export const metadata: Metadata = {
   title: 'Math Wizard Pro',

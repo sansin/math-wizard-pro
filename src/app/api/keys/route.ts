@@ -11,12 +11,18 @@ import { z } from 'zod';
 import { getServerClient, getServiceClient } from '@/lib/supabase/server';
 import { encryptKey, makeHint } from '@/lib/ai/encryption';
 import { PROVIDER_LIST } from '@/lib/ai/provider-info';
+import { getUsageForUser, getValidationsForUser } from '@/lib/ai/usage-tracker';
 
 export const runtime = 'nodejs';
 
 const PostBody = z.object({
-  provider: z.enum(['gemini', 'claude', 'openai', 'deepseek', 'groq', 'cerebras']),
-  key: z.string().min(8).max(400),
+  provider: z.enum([
+    'gemini', 'claude', 'openai', 'deepseek', 'groq', 'cerebras',
+    'cloudflare', 'openrouter', 'mistral', 'huggingface',
+  ]),
+  // Cloudflare keys have format "accountId:token" so we accept colons too.
+  // Allow longer max for combined credentials.
+  key: z.string().min(8).max(800),
 });
 
 export async function GET() {
@@ -25,14 +31,19 @@ export async function GET() {
   if (!auth?.user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
 
   const sb = getServiceClient();
-  const { data } = await sb
-    .from('user_api_keys')
-    .select('provider, hint, active, added_at')
-    .eq('user_id', auth.user.id);
+  const userId = auth.user.id;
+
+  const [{ data: keyData }, usage, validations] = await Promise.all([
+    sb.from('user_api_keys').select('provider, hint, active, added_at').eq('user_id', userId),
+    getUsageForUser(userId).catch(() => []),
+    getValidationsForUser(userId).catch(() => ({} as Record<string, never>)),
+  ]);
 
   return NextResponse.json({
-    keys: data ?? [],
+    keys: keyData ?? [],
     providers: PROVIDER_LIST,
+    usage,           // [{ provider, source, todayRequests, todayTokens, totalRequests, totalTokens, lastUsedAt }]
+    validations,     // { [provider]: { ok, model, latencyMs, errorMessage, validatedAt } }
   });
 }
 

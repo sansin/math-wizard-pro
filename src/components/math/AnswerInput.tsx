@@ -96,6 +96,7 @@ export function AnswerInput({
       aria-label="Your answer"
       className={cn(
         'h-14 w-full rounded-xl border-2 px-4 text-lg font-mono transition-colors',
+        'text-ink-900 placeholder:text-ink-400',
         'focus:outline-none focus:ring-4',
         status === 'correct'
           ? 'border-leaf-500 bg-leaf-50 focus:ring-leaf-200'

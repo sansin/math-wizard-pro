@@ -19,8 +19,10 @@ import { z } from 'zod';
 import { getServerClient, getServiceClient } from '@/lib/supabase/server';
 import { resolveKeysForUser, bumpSharedUsage } from '@/lib/ai/key-resolver';
 import { generateBatch } from '@/lib/ai/generator';
+import { NoProviderError } from '@/lib/ai/router';
+import { bumpUsage } from '@/lib/ai/usage-tracker';
 import { pickNext } from '@/lib/mastery/engine';
-import type { Skill, SkillMastery } from '@/types/core';
+import type { AIProviderId, Skill, SkillMastery } from '@/types/core';
 
 const Body = z.object({
   skillIds: z.array(z.string()).min(1).max(20),
@@ -97,20 +99,43 @@ export async function POST(req: Request) {
     lastDifficulty: body.lastDifficulty as 1 | 2 | 3 | 4 | 5 | undefined,
   });
 
-  // 3. Try cache: pull a verified question for this skill+difficulty the user
-  //    hasn't recently seen.
+  // 3. Try cache. To minimize AI calls we look at the EXACT difficulty
+  //    first, then nearby difficulties (±1). Adjacent-difficulty fallback
+  //    keeps the user practicing instead of burning a generation cycle
+  //    when the exact level happens to be empty.
+  const targetDifficulties = [
+    pick.difficulty,
+    Math.min(5, pick.difficulty + 1),
+    Math.max(1, pick.difficulty - 1),
+  ].filter((v, i, arr) => arr.indexOf(v) === i); // dedupe
+
   const { data: cacheRows } = await sb
     .from('questions')
     .select('id, prompt_hash, prompt, answer, hints, solution, source, provider, difficulty, skill_id, verified, created_at, served_count, correct_count, flagged_count')
     .eq('skill_id', pick.skill.id)
-    .eq('difficulty', pick.difficulty)
+    .in('difficulty', targetDifficulties)
     .eq('verified', true)
     .order('served_count', { ascending: true })
-    .limit(20);
+    .limit(40);
 
   const avoid = new Set(body.avoidPromptHashes);
-  const fromCache = (cacheRows ?? []).find(
-    (q: Record<string, unknown>) => !avoid.has(q.prompt_hash as string),
+  const cached = (cacheRows ?? []) as Array<Record<string, unknown>>;
+
+  // Prefer exact-difficulty hits, then ±1 in the order we listed.
+  const fromCache = (() => {
+    for (const d of targetDifficulties) {
+      const hit = cached.find(
+        (q) => !avoid.has(q.prompt_hash as string) && q.difficulty === d,
+      );
+      if (hit) return hit;
+    }
+    return undefined;
+  })();
+
+  console.log(
+    `[questions/next] skill=${pick.skill.id} diff=${pick.difficulty} ` +
+    `cache=${cached.length} (across diff ${targetDifficulties.join(',')}) avoid=${avoid.size} ` +
+    `served=${fromCache ? `cache:${(fromCache.prompt_hash as string).slice(0, 6)}@d${fromCache.difficulty}` : 'will-generate'}`,
   );
 
   if (fromCache) {
@@ -118,6 +143,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       source: 'cache',
       reason: pick.reason,
+      provider: (r.provider as string) ?? null,
+      providerSource: 'cache',
       question: {
         id: r.id,
         promptHash: r.prompt_hash,
@@ -148,15 +175,37 @@ export async function POST(req: Request) {
     );
   }
 
-  const batch = await generateBatch(
-    {
-      skill: pick.skill,
-      difficulty: pick.difficulty,
-      count: 5,
-      avoidPromptHashes: body.avoidPromptHashes,
-    },
-    keys.ctx,
-  );
+  // Each cache miss generates 5 questions in a single API call, so a
+  // user can typically practice ~15 questions before triggering another
+  // generation (5 fresh × 3 difficulty buckets via fuzzy lookup).
+  let batch;
+  try {
+    batch = await generateBatch(
+      {
+        skill: pick.skill,
+        difficulty: pick.difficulty,
+        count: 5,
+        avoidPromptHashes: body.avoidPromptHashes,
+      },
+      keys.ctx,
+    );
+  } catch (e) {
+    // The router threw NoProviderError because every configured provider
+    // failed (rate-limit / auth / etc). Surface a structured 502 so the
+    // client can render a useful message.
+    if (e instanceof NoProviderError) {
+      return NextResponse.json(
+        {
+          error: 'all-providers-failed',
+          detail:
+            'All configured AI providers errored. Add another provider in Settings → AI Providers, or wait a minute and retry.',
+          attempts: e.attempts,
+        },
+        { status: 502 },
+      );
+    }
+    throw e;
+  }
 
   if (batch.questions.length === 0) {
     return NextResponse.json(
@@ -181,17 +230,36 @@ export async function POST(req: Request) {
   }));
   await sb.from('questions').upsert(insertRows, { onConflict: 'prompt_hash' });
 
-  // If any successful provider was an admin key, bump shared usage.
+  // Track per-key usage. The router records which provider actually
+  // succeeded and whether it came from the user's BYOK or admin keys —
+  // we credit the right bucket so the Settings UI can show usage per key.
+  const winning = batch.attempts.find((a) => a.ok);
+  if (winning) {
+    const tokensThisCall = batch.questions.length * 1500; // rough estimate
+    await bumpUsage(
+      userId,
+      winning.provider as AIProviderId,
+      winning.source ?? 'admin',
+      tokensThisCall,
+    ).catch(() => { /* non-fatal */ });
+  }
+
+  // If any successful provider was an admin key, bump shared-key daily quota.
   const usedAdmin = batch.attempts.some(
     (a) => a.ok && (keys.ctx.userKeys[a.provider as keyof typeof keys.ctx.userKeys] === undefined),
   );
   if (usedAdmin) await bumpSharedUsage(userId);
 
   const first = batch.questions[0]!;
+  // Identify the provider that actually succeeded — this is what we surface
+  // in the UI so users can see "powered by Gemini" / "Claude" etc.
+  const winningAttempt = batch.attempts.find((a) => a.ok);
   return NextResponse.json({
     source: 'ai',
     reason: pick.reason,
     question: first,
+    provider: winningAttempt?.provider ?? first.provider ?? null,
+    providerSource: winningAttempt?.source ?? null, // 'user' | 'admin'
     attempts: batch.attempts,
     quota: keys.sharedQuota,
   });

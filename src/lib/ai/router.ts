@@ -24,6 +24,10 @@ import { openaiProvider } from './providers/openai';
 import { groqProvider } from './providers/groq';
 import { cerebrasProvider } from './providers/cerebras';
 import { deepseekProvider } from './providers/deepseek';
+import { cloudflareProvider } from './providers/cloudflare';
+import { openrouterProvider } from './providers/openrouter';
+import { mistralProvider } from './providers/mistral';
+import { huggingfaceProvider } from './providers/huggingface';
 
 const REGISTRY: Record<AIProviderId, ProviderClient> = {
   gemini: geminiProvider,
@@ -32,19 +36,59 @@ const REGISTRY: Record<AIProviderId, ProviderClient> = {
   groq: groqProvider,
   cerebras: cerebrasProvider,
   deepseek: deepseekProvider,
+  cloudflare: cloudflareProvider,
+  openrouter: openrouterProvider,
+  mistral: mistralProvider,
+  huggingface: huggingfaceProvider,
 };
 
 /**
  * Default order optimized for cost / free-tier usage.
- *  - Gemini first (largest free tier, strong quality)
- *  - Claude second for tasks needing reasoning quality (overridden per-task)
- *  - Groq + Cerebras for speed + free tier
- *  - DeepSeek + OpenAI as paid fallbacks
+ *  - All free-tier providers first (Gemini → Groq → Cerebras), so paid keys
+ *    are touched only when free quotas are exhausted.
+ *  - Then paid providers in quality/cost order: Claude (best math) → DeepSeek
+ *    (cheap) → OpenAI (broad).
+ *
+ * Override via env var `AI_PROVIDER_ORDER` (comma-separated provider ids):
+ *   AI_PROVIDER_ORDER=gemini,claude,openai
+ * Providers not listed are appended in default order at the tail. This lets
+ * users put their preferred free providers first while still benefiting
+ * from automatic fallback to whatever's left if those are exhausted.
  */
-const DEFAULT_ORDER: AIProviderId[] = ['gemini', 'groq', 'cerebras', 'claude', 'deepseek', 'openai'];
+const ALL_PROVIDERS: AIProviderId[] = [
+  'gemini', 'groq', 'cerebras', 'cloudflare', 'openrouter', 'mistral', 'huggingface',
+  'claude', 'deepseek', 'openai',
+];
+// Free-tier providers first (CF, Gemini, Groq, Cerebras, OpenRouter free
+// models, Mistral, HF), paid last (Claude, DeepSeek, OpenAI).
+const FREE_FIRST_ORDER: AIProviderId[] = [
+  'cloudflare', 'gemini', 'groq', 'cerebras', 'openrouter', 'mistral', 'huggingface',
+  'claude', 'deepseek', 'openai',
+];
 
-/** For tasks where reasoning quality matters most, Claude moves up. */
-const QUALITY_ORDER: AIProviderId[] = ['claude', 'gemini', 'deepseek', 'openai', 'groq', 'cerebras'];
+function parseEnvOrder(): AIProviderId[] | null {
+  const raw = process.env.AI_PROVIDER_ORDER;
+  if (!raw) return null;
+  const ids = raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s): s is AIProviderId => ALL_PROVIDERS.includes(s as AIProviderId));
+  if (ids.length === 0) return null;
+  // Append any providers not listed, so we never silently drop fallbacks.
+  for (const p of ALL_PROVIDERS) {
+    if (!ids.includes(p)) ids.push(p);
+  }
+  return ids;
+}
+
+const DEFAULT_ORDER: AIProviderId[] = parseEnvOrder() ?? FREE_FIRST_ORDER;
+
+/** For tasks where reasoning quality matters most, Claude moves up — but
+ * still respects user's env order if they set one. */
+const QUALITY_ORDER: AIProviderId[] = parseEnvOrder() ?? [
+  'claude', 'gemini', 'mistral', 'deepseek', 'openai',
+  'openrouter', 'cloudflare', 'groq', 'cerebras', 'huggingface',
+];
 
 export interface RouterOptions {
   /** Per-call timeout (ms). Defaults to 18s. */
@@ -138,7 +182,10 @@ export async function route(
   );
   const candidates = buildAttemptOrder({ ...ctx, preferredOrder: order }, opts);
   const attempts: RouterAttempt[] = [];
-  const timeoutMs = opts.timeoutMs ?? 18_000;
+  // 30s gives Gemini Flash room to generate 5 questions with full LaTeX
+  // hints + solutions. The previous 18s ceiling was triggering false
+  // timeouts on legitimately-long generations.
+  const timeoutMs = opts.timeoutMs ?? 30_000;
 
   for (const cand of candidates) {
     const provider = REGISTRY[cand.provider];

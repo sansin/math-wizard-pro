@@ -15,18 +15,31 @@ import type { Hint } from '@/types/core';
  *    affects the XP penalty server-side.
  *  - We never show level 3 without an explicit click — the student has to
  *    decide they want a near-final nudge.
+ *  - After hint 3, an optional "📖 See the solution" button is shown so
+ *    students who are still stuck can give up gracefully.
+ *  - Internal `revealed` state resets whenever the hints prop changes
+ *    (new question loaded), so revealed hints don't leak across questions.
  */
 
 export interface HintLadderProps {
   hints: [Hint, Hint, Hint];
   onHintRevealed: (count: number) => void;
+  /** Optional — when provided, a "See the solution" button shows after hint 3. */
+  onRevealSolution?: () => void;
 }
 
 const LEVEL_LABELS = ['Concept hint', 'Strategy hint', 'Almost-there hint'];
 const LEVEL_TONES: Array<'subtle' | 'medium' | 'strong'> = ['subtle', 'medium', 'strong'];
 
-export function HintLadder({ hints, onHintRevealed }: HintLadderProps) {
+export function HintLadder({ hints, onHintRevealed, onRevealSolution }: HintLadderProps) {
   const [revealed, setRevealed] = React.useState(0);
+
+  // Reset whenever the parent hands us a new question's hints.
+  // Identity comparison on the array reference works because we get a new
+  // array each time the question state updates.
+  React.useEffect(() => {
+    setRevealed(0);
+  }, [hints]);
 
   const reveal = () => {
     if (revealed >= 3) return;
@@ -73,6 +86,21 @@ export function HintLadder({ hints, onHintRevealed }: HintLadderProps) {
         >
           <span aria-hidden>{revealed === 0 ? '💡' : revealed === 1 ? '🧭' : '🔎'}</span>
           {revealed === 0 ? 'Need a hint?' : revealed === 1 ? 'More help, please' : 'One last nudge'}
+        </button>
+      )}
+
+      {/* After all 3 hints, offer to reveal the full solution. */}
+      {revealed === 3 && onRevealSolution && (
+        <button
+          type="button"
+          onClick={onRevealSolution}
+          className={cn(
+            'inline-flex items-center gap-2 text-sm font-semibold mt-1',
+            'text-leaf-700 hover:text-leaf-800 transition-colors',
+          )}
+        >
+          <span aria-hidden>📖</span>
+          See the solution
         </button>
       )}
     </div>

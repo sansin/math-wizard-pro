@@ -95,14 +95,53 @@ ${ANSWER_KIND_GUIDE}
 
 Each question MUST include:
 1. "prompt" — the question text (LaTeX OK).
-2. "answer" — the verified correct answer using one of the schemas above.
+2. "answer" — the verified correct answer using one of the schemas above. THIS FIELD MUST NEVER BE EMPTY; it must contain a "type" field and the variant's required fields.
 3. "hints" — exactly 3 progressive hints. Hint 1 is a gentle nudge about the concept. Hint 2 suggests a strategy or sub-step. Hint 3 brings the student close to the answer WITHOUT stating it. None of the hints may reveal the final answer.
 4. "solution" — 2-4 short steps showing how to reach the answer.
 
+CONCRETE EXAMPLE of a single question (you must produce 5 like this):
+{
+  "prompt": "Mia has 35 stickers and gives 12 to Leo. How many does Mia have left?",
+  "answer": {"type": "numeric", "value": 23},
+  "hints": [
+    {"level": 1, "text": "When you give some away, the total goes down — which operation does that?"},
+    {"level": 2, "text": "Subtract: $35 - 12$. Take care of ones first, then tens."},
+    {"level": 3, "text": "Ones: $5 - 2 = 3$. Tens: $3 - 1 = 2$. Combine the digits."}
+  ],
+  "solution": [
+    {"title": "Identify the operation", "detail": "Giving away means we subtract."},
+    {"title": "Compute", "detail": "$35 - 12 = 23$.", "state": "23"}
+  ]
+}
+
 Constraints:
 - Never use the same numbers or near-duplicate phrasings within a batch.
-- Vary surface form: include word problems, equations, comparison, and "find the missing value" forms.
-- Every answer must be verifiable by simple arithmetic or symbolic computation.`;
+- Across the ${count} questions in this batch you MUST mix surface forms. Don't make every question a "Sara has X / Tom has X" word problem. Use:
+  • a plain numeric problem (e.g. "$48 - 16 = ?$")
+  • a word problem with a real-world context (cooking, sports, money, travel — vary them)
+  • a comparison or "missing value" form (e.g. "$? + 16 = 48$" or "Which is larger: ...")
+  • a "find the difference" or "complete the sequence" form
+  • optionally a multipleChoice variant
+- Real-world contexts must vary: don't repeat "stickers" or "cookies" or "marbles" within a batch. Try sports scores, time of day, money, distance, weights, ages, books read, plants in a garden — anything plausible for the grade.
+- Names of people in word problems must vary across questions (don't reuse "Sara"/"Tom"/"Mia" for multiple).
+- Every answer must be verifiable by simple arithmetic or symbolic computation.
+
+CURRENCY (CRITICAL):
+- NEVER write a bare \\$ for currency in the prompt. This collides with our LaTeX delimiter and breaks rendering.
+- Instead, prefer: "USD 12" or "12 dollars" or "$\\\\$ 12$" (escaped LaTeX dollar inside math mode).
+- For a word problem about money, use "USD" prefix or spell it out:
+  - YES: "Karen has USD 12 more than..."
+  - YES: "Karen has 12 dollars more than..."
+  - NO:  "Karen has $12 more than..."   ← causes whitespace stripping in our renderer.
+
+ALGEBRA / EQUATIONS:
+- For algebra word problems, ALSO include the symbolic equation as block-level LaTeX at the end of the prompt, after the descriptive text. This helps students visualize the math.
+- Example prompt: "Karen has 12 dollars more than twice what she had last week. If she has 26 dollars now, how much did she have last week? Let x be the amount she had last week. $$2x + 12 = 26$$"
+- The equation goes inside $$ ... $$ (block math) at the END of the prompt, separated by a space.
+
+OUTPUT FORMAT:
+- Output must be a single JSON object: {"questions":[ {...}, {...}, ... ]}. No prose, no markdown fences.
+- LaTeX inside JSON strings: use double backslashes (\\\\frac instead of \\frac), since JSON requires escaping the backslash.`;
 
   const avoidLine = avoidPromptHashes && avoidPromptHashes.length > 0
     ? `\nAvoid these prompt patterns (already shown to user): ${avoidPromptHashes.slice(0, 20).join(', ')}.`

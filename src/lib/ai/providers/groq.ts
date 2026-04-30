@@ -41,10 +41,15 @@ export const groqProvider: ProviderClient = {
     } catch (e) {
       throw err('timeout', `network: ${(e as Error).message}`);
     }
-    if (res.status === 429) throw err('rate-limit', 'groq rate limited');
-    if (res.status === 401) throw err('auth', 'groq auth failed', false);
-    if (res.status >= 500) throw err('server', `groq server ${res.status}`);
-    if (!res.ok) throw err('bad-request', `groq ${res.status}`, false);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '<unreadable>');
+      const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
+      console.error(`[groq] ${res.status}: ${trimmed}`);
+      if (res.status === 429) throw err('rate-limit', `groq 429: ${trimmed}`);
+      if (res.status === 401 || res.status === 403) throw err('auth', `groq ${res.status}: ${trimmed}`, false);
+      if (res.status >= 500) throw err('server', `groq ${res.status}: ${trimmed}`);
+      throw err('bad-request', `groq ${res.status}: ${trimmed}`, false);
+    }
 
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;

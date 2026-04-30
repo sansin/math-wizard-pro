@@ -6,6 +6,56 @@ import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 import type { GradeBand, Skill } from '@/types/core';
 
+/**
+ * Module icons — same emoji per module name across grade bands so the user
+ * develops a visual association ("➕" always means Addition, "🥧" always
+ * Fractions). Falls back to 📘 for any unmapped module.
+ */
+const MODULE_ICONS: Record<string, string> = {
+  'Number Sense': '🔢',
+  'Counting': '🔢',
+  'Addition': '➕',
+  'Subtraction': '➖',
+  'Multiplication': '✖️',
+  'Division': '➗',
+  'Arithmetic': '🔢',
+  'Number Theory': '🔢',
+  'Fractions': '🥧',
+  'Decimals': '💯',
+  'Ratios': '📊',
+  'Pre-Algebra': '🔤',
+  'Algebra': '🔤',
+  'Functions': '📈',
+  'Geometry': '📐',
+  'Trigonometry': '📐',
+  'Calculus': '∫',
+  'Statistics': '📊',
+  'Probability': '🎲',
+  'Exponents': '⚡',
+  'Measurement': '📏',
+  'Logic': '🧩',
+};
+
+/** A 5-dot meter for skill difficulty (intrinsic difficulty 1-5). */
+function DifficultyDots({ level }: { level: 1 | 2 | 3 | 4 | 5 }) {
+  return (
+    <div className="flex items-center gap-0.5 shrink-0" aria-label={`Difficulty ${level} of 5`} title={`Difficulty ${level}/5`}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <span
+          key={i}
+          aria-hidden
+          className={cn(
+            'inline-block h-1.5 w-1.5 rounded-full',
+            i <= level
+              ? level <= 2 ? 'bg-leaf-400' : level === 3 ? 'bg-spell-400' : 'bg-ember-400'
+              : 'bg-ink-200',
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
 const GRADE_BANDS: Array<{ id: GradeBand; label: string; tagline: string; icon: string; color: string }> = [
   { id: 'K-1',   label: 'Kindergarten – 1st',  tagline: 'Counting, simple math',         icon: '🎈', color: 'from-pink-400/20 to-rose-400/10 border-pink-200' },
   { id: '2-3',   label: '2nd – 3rd grade',     tagline: 'Multi-digit, multiplication',   icon: '🌟', color: 'from-amber-400/20 to-orange-400/10 border-amber-200' },
@@ -126,50 +176,96 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
               No skills found for this grade. Try another.
             </div>
           ) : (
-            <div className="space-y-5">
-              {modules.map(([moduleName, moduleSkills]) => (
-                <div key={moduleName}>
-                  <div className="text-2xs uppercase tracking-wider font-bold text-ink-500 mb-1.5 px-1">
-                    {moduleName}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {moduleSkills.map((s) => {
-                      const sel = selected.has(s.id);
-                      return (
-                        <button
-                          key={s.id}
-                          onClick={() => toggle(s.id)}
-                          aria-pressed={sel}
-                          className={cn(
-                            'flex items-start gap-3 rounded-xl border-2 p-3 text-left transition-all',
-                            sel
-                              ? 'border-wizard-500 bg-wizard-50'
-                              : 'border-ink-100 bg-white hover:border-wizard-200 hover:bg-wizard-50/40',
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              'flex h-6 w-6 items-center justify-center rounded-md text-xs shrink-0',
-                              sel ? 'bg-wizard-500 text-white' : 'bg-ink-100 text-ink-500',
-                            )}
-                            aria-hidden
+            <div className="space-y-7">
+              {modules.map(([moduleName, moduleSkills]) => {
+                const moduleSelectedCount = moduleSkills.filter((s) => selected.has(s.id)).length;
+                const allSelected = moduleSelectedCount === moduleSkills.length;
+                const moduleIcon = MODULE_ICONS[moduleName] ?? '📘';
+                const toggleModule = () => {
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (allSelected) {
+                      moduleSkills.forEach((s) => next.delete(s.id));
+                    } else {
+                      moduleSkills.forEach((s) => next.add(s.id));
+                    }
+                    return next;
+                  });
+                };
+
+                return (
+                  <section key={moduleName} aria-labelledby={`mod-${moduleName}`}>
+                    {/* Prominent module header — Option A */}
+                    <div className="flex items-end justify-between gap-3 border-b border-ink-100 pb-2 mb-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-2xl shrink-0" aria-hidden>{moduleIcon}</span>
+                        <div className="min-w-0">
+                          <h3
+                            id={`mod-${moduleName}`}
+                            className="font-display font-bold text-xl sm:text-2xl text-ink-900 leading-tight truncate"
                           >
-                            {sel ? '✓' : ''}
-                          </span>
-                          <div className="flex-1">
-                            <div className="font-semibold text-sm text-ink-900 leading-tight">
-                              {s.name}
-                            </div>
-                            <div className="text-xs text-ink-500 mt-0.5">
-                              {s.topic} · Difficulty {s.intrinsicDifficulty}
-                            </div>
+                            {moduleName}
+                          </h3>
+                          <div className="text-xs text-ink-500">
+                            {moduleSkills.length} skill{moduleSkills.length === 1 ? '' : 's'}
+                            {moduleSelectedCount > 0 && (
+                              <> · <span className="font-semibold text-wizard-700">{moduleSelectedCount} selected</span></>
+                            )}
                           </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleModule}
+                        className={cn(
+                          'shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors',
+                          allSelected
+                            ? 'border-wizard-300 text-wizard-700 bg-wizard-50 hover:bg-wizard-100'
+                            : 'border-ink-200 text-ink-700 hover:border-wizard-300 hover:text-wizard-700',
+                        )}
+                      >
+                        {allSelected ? '☑ All selected' : 'Select all'}
+                      </button>
+                    </div>
+
+                    {/* Compact skill rows */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {moduleSkills.map((s) => {
+                        const sel = selected.has(s.id);
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => toggle(s.id)}
+                            aria-pressed={sel}
+                            className={cn(
+                              'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                              sel
+                                ? 'border-wizard-400 bg-wizard-50'
+                                : 'border-ink-100 bg-white hover:border-wizard-200 hover:bg-wizard-50/40',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'flex h-5 w-5 items-center justify-center rounded-md text-[10px] shrink-0',
+                                sel ? 'bg-wizard-500 text-white' : 'bg-ink-100 text-ink-400',
+                              )}
+                              aria-hidden
+                            >
+                              {sel ? '✓' : ''}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm text-ink-900 leading-tight truncate">
+                                {s.name}
+                              </div>
+                            </div>
+                            <DifficultyDots level={s.intrinsicDifficulty} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
         </CardBody>

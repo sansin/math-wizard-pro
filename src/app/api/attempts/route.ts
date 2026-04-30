@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { getServerClient, getServiceClient } from '@/lib/supabase/server';
 import { parseUserAnswer } from '@/lib/math/parser';
 import { checkAnswer } from '@/lib/math/checker';
+import { areEquivalent } from '@/lib/math/equivalence';
 import { calculateXP } from '@/lib/mastery/xp';
 import type { AnswerKind } from '@/types/core';
 
@@ -57,7 +58,24 @@ export async function POST(req: Request) {
 
   const expected = (q as Record<string, unknown>).answer as AnswerKind;
   const parsed = parseUserAnswer(body.submitted);
-  const result = checkAnswer(parsed, expected);
+  let result = checkAnswer(parsed, expected);
+
+  // Symbolic-equivalence fallback for expressions / equations.
+  // The simple checker compares canonical strings — but "y=240-4x" and
+  // "240-4x=y" are mathematically the same. mathjs handles that here.
+  if (!result.correct && expected.type === 'expression') {
+    if (areEquivalent(body.submitted, expected.canonical)) {
+      result = { correct: true };
+    }
+  }
+  // Also: if the question expected a NUMERIC answer but the user typed an
+  // algebraic form like "x = 5", strip the LHS and try the RHS as numeric.
+  if (!result.correct && expected.type === 'numeric' && body.submitted.includes('=')) {
+    const rhs = body.submitted.split('=').slice(-1)[0]!.trim();
+    const reparsed = parseUserAnswer(rhs);
+    const retry = checkAnswer(reparsed, expected);
+    if (retry.correct) result = retry;
+  }
 
   // Look up current XP streak to compute the optimistic XP estimate.
   const { data: xp } = await sb

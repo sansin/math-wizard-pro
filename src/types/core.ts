@@ -149,7 +149,11 @@ export type AIProviderId =
   | 'openai'
   | 'deepseek'
   | 'groq'
-  | 'cerebras';
+  | 'cerebras'
+  | 'cloudflare'
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface';
 
 export interface AIProviderInfo {
   id: AIProviderId;

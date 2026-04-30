@@ -23,12 +23,31 @@ import { hash32 } from '@/lib/utils';
 import type { Question, Skill, AnswerKind, Hint, SolutionStep } from '@/types/core';
 
 // ─── Schemas to validate AI output ─────────────────────────────────────
+// Note: AI providers' structured-output modes have inconsistent type fidelity.
+// Gemini in particular can return numbers as strings or nest extras. We use
+// `z.coerce.number()` for numeric fields so "42" → 42 transparently.
 const AnswerSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('numeric'), value: z.number(), tolerance: z.number().optional() }),
-  z.object({ type: z.literal('fraction'), numerator: z.number().int(), denominator: z.number().int() }),
+  z.object({
+    type: z.literal('numeric'),
+    value: z.coerce.number(),
+    tolerance: z.coerce.number().optional(),
+  }),
+  z.object({
+    type: z.literal('fraction'),
+    numerator: z.coerce.number().int(),
+    denominator: z.coerce.number().int(),
+  }),
   z.object({ type: z.literal('expression'), canonical: z.string() }),
-  z.object({ type: z.literal('multipleChoice'), correctIndex: z.number().int(), options: z.array(z.string()).min(2).max(6) }),
-  z.object({ type: z.literal('text'), value: z.string(), caseSensitive: z.boolean().optional() }),
+  z.object({
+    type: z.literal('multipleChoice'),
+    correctIndex: z.coerce.number().int(),
+    options: z.array(z.string()).min(2).max(6),
+  }),
+  z.object({
+    type: z.literal('text'),
+    value: z.string(),
+    caseSensitive: z.coerce.boolean().optional(),
+  }),
 ]);
 
 const HintSchema = z.object({
@@ -68,7 +87,7 @@ export interface GenerateBatchResult {
   generated: number;
   cached: number;
   rejected: number;
-  attempts: Array<{ provider: string; ok: boolean; latencyMs?: number; error?: string }>;
+  attempts: Array<{ provider: string; source?: 'user' | 'admin'; ok: boolean; latencyMs?: number; error?: string }>;
 }
 
 const MAX_RETRIES = 1;
@@ -76,6 +95,37 @@ const MAX_RETRIES = 1;
 /** Strip ``` and ```json fences if the AI added them despite JSON mode. */
 function stripFences(s: string): string {
   return s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+}
+
+/**
+ * Gemini sometimes emits LaTeX inside JSON strings without escaping
+ * backslashes — e.g. `"text": "Subtract: $48 \frac{1}{2}$"` where `\f` is
+ * an invalid JSON escape. Pre-process the raw text by escaping common
+ * LaTeX backslash sequences that aren't already valid JSON escapes.
+ *
+ * We're conservative: only convert backslash followed by a letter (LaTeX
+ * command start) into double-backslash. This preserves real JSON escapes
+ * like \n, \t, \", \\, \uXXXX.
+ */
+function fixLatexEscapes(s: string): string {
+  // Replace \X where X is a letter (start of LaTeX command) with \\X.
+  // Skip valid JSON escapes: \n, \t, \r, \b, \f, \", \', \/, \\, \u.
+  const VALID_ESC = new Set(['n', 't', 'r', 'b', 'f', '"', "'", '/', '\\', 'u']);
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === '"' && (i === 0 || s[i - 1] !== '\\')) inString = !inString;
+    if (inString && c === '\\' && i + 1 < s.length) {
+      const next = s[i + 1]!;
+      if (!VALID_ESC.has(next) && /[A-Za-z]/.test(next)) {
+        out += '\\\\';
+        continue;
+      }
+    }
+    out += c;
+  }
+  return out;
 }
 
 function toQuestion(
@@ -104,7 +154,10 @@ function toQuestion(
     expectedKind,
     metadata,
   });
-  if (!verification.ok) return null;
+  if (!verification.ok) {
+    console.warn(`[generator] reject (${expectedKind}): ${verification.reason} | prompt="${draft.prompt.slice(0, 80)}" | rawAnswer=${JSON.stringify(rawAnswer)}`);
+    return null;
+  }
 
   return {
     id: crypto.randomUUID(),
@@ -148,7 +201,9 @@ export async function generateBatch(
         user: built.user,
         jsonSchema: built.schema as object,
         temperature: 0.85,
-        maxTokens: Math.min(2400, 400 + need * 300),
+        // Each question costs ~600-900 tokens with hints + solution + LaTeX.
+        // Cap at 8K, scale generously.
+        maxTokens: Math.min(8000, 1200 + need * 800),
       },
       ctx,
     );
@@ -156,8 +211,20 @@ export async function generateBatch(
 
     let parsed: z.infer<typeof BatchSchema>;
     try {
-      parsed = BatchSchema.parse(JSON.parse(stripFences(result.response.content)));
-    } catch {
+      const raw = stripFences(result.response.content);
+      // Try parsing as-is first, then with LaTeX-escape fixes if that fails.
+      let json: unknown;
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        const fixed = fixLatexEscapes(raw);
+        json = JSON.parse(fixed);
+      }
+      parsed = BatchSchema.parse(json);
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      console.warn(`[generator] BatchSchema.parse failed: ${detail.slice(0, 400)}`);
+      console.warn(`[generator] raw AI content: ${stripFences(result.response.content).slice(0, 600)}`);
       rejected += need;
       continue;
     }
