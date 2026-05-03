@@ -26,8 +26,15 @@ export async function signInLegacy(email: string, password: string): Promise<Sig
     },
   );
   if (!r.ok) {
-    const err = (await r.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new Error(err.error?.message || 'invalid-credentials');
+    const err = (await r.json().catch(() => ({}))) as { error?: { message?: string; code?: number } };
+    const code = err.error?.message ?? 'invalid-credentials';
+    // Surface the specific Firebase error code so the UI can give actionable guidance.
+    // Common values: API_KEY_INVALID, INVALID_LOGIN_CREDENTIALS,
+    // EMAIL_NOT_FOUND, INVALID_PASSWORD, USER_DISABLED, TOO_MANY_ATTEMPTS_TRY_LATER
+    console.error(`[firebase legacy] ${r.status} signIn failed: ${code} (project=${FB_PROJECT})`);
+    const e = new Error(code) as Error & { firebaseCode?: string };
+    e.firebaseCode = code;
+    throw e;
   }
   return (await r.json()) as SignInResponse;
 }

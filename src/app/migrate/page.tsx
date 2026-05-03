@@ -56,7 +56,24 @@ export default function MigratePage() {
           throw new Error('Classic import isn’t available on this deployment yet. The admin needs to add the v1 Firebase credentials. Try again later.');
         }
         if (d.error === 'classic-auth-failed') {
-          throw new Error('Couldn’t sign in to Classic Math Wizard with those credentials. Double-check your email and password — those need to be the ones from the OLD app, not Math Wizard Pro.');
+          // Map Firebase error codes to actionable messages.
+          const code = (d.firebaseCode ?? '').toUpperCase();
+          if (code === 'API_KEY_INVALID' || code.includes('API_KEY')) {
+            throw new Error('Server configuration issue — the v1 Firebase API key is invalid. Contact the admin.');
+          }
+          if (code === 'EMAIL_NOT_FOUND') {
+            throw new Error('No Classic Math Wizard account found with this email. Did you use a different email there? Or skip migration and create a fresh account.');
+          }
+          if (code === 'INVALID_PASSWORD' || code === 'INVALID_LOGIN_CREDENTIALS') {
+            throw new Error('That password doesn’t match the Classic account. Use your Classic Math Wizard password — not your Math Wizard Pro password.');
+          }
+          if (code === 'USER_DISABLED') {
+            throw new Error('That Classic account is disabled. Skip migration and create a fresh account on Math Wizard Pro.');
+          }
+          if (code === 'TOO_MANY_ATTEMPTS_TRY_LATER') {
+            throw new Error('Too many failed attempts. Wait a few minutes and try again, or skip migration and start fresh.');
+          }
+          throw new Error(`Couldn’t sign in to Classic Math Wizard. (Firebase: ${code || 'unknown error'})`);
         }
         throw new Error(d.detail || d.error || 'Could not load Classic data');
       }

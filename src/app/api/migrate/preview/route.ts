@@ -25,7 +25,12 @@ export async function POST(req: Request) {
   try {
     signed = await signInLegacy(body.email, body.password);
   } catch (e) {
-    return NextResponse.json({ error: 'classic-auth-failed', detail: (e as Error).message }, { status: 401 });
+    const err = e as Error & { firebaseCode?: string };
+    return NextResponse.json({
+      error: 'classic-auth-failed',
+      detail: err.message,
+      firebaseCode: err.firebaseCode ?? null,
+    }, { status: 401 });
   }
 
   const profile = await fetchLegacyProfile(signed.localId, signed.idToken);
