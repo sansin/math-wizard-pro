@@ -90,19 +90,37 @@ function chooseDifficulty(
 ): 1 | 2 | 3 | 4 | 5 {
   const start = STARTING_DIFFICULTY[skill.gradeBand] ?? 2;
   const m = mastery?.mastery ?? 0;
+  const correctStreak = mastery?.correctStreak ?? 0;
   const masteryDifficulty: 1 | 2 | 3 | 4 | 5 =
     m < 0.20 ? 1 :
     m < 0.40 ? 2 :
     m < 0.65 ? 3 :
     m < 0.85 ? 4 : 5;
 
-  // Smooth real-time adjustment: nudge from last difficulty rather than jump.
+  // Smoother real-time adjustment:
+  //   - Right answer: STAY at last difficulty unless mastery suggests
+  //     higher. Only bump up when the user has 2+ correct in a row
+  //     (genuine flow zone signal). This makes the cache hit far more
+  //     often — instead of generating a fresh batch at a new difficulty
+  //     after every correct answer, we serve from existing cache.
+  //   - Wrong answer: soften by 1 from last difficulty (clamped by mastery
+  //     floor — never below masteryDifficulty since that'd waste the user's
+  //     time).
   if (typeof lastDifficulty === 'number') {
-    const target = lastCorrect === true
-      ? Math.min(5, Math.max(masteryDifficulty, lastDifficulty + 1))
-      : lastCorrect === false
-      ? Math.max(1, Math.min(masteryDifficulty, lastDifficulty - 1))
-      : masteryDifficulty;
+    let target: number = lastDifficulty;
+    if (lastCorrect === true) {
+      // Bump only when mastery has caught up OR streak >= 2.
+      const masteryWantsHigher = masteryDifficulty > lastDifficulty;
+      const streakWantsHigher = correctStreak >= 2;
+      if (masteryWantsHigher) {
+        target = masteryDifficulty;
+      } else if (streakWantsHigher) {
+        target = Math.min(5, lastDifficulty + 1);
+      }
+      // else stay at lastDifficulty — keeps cache hot.
+    } else if (lastCorrect === false) {
+      target = Math.max(1, Math.max(masteryDifficulty, lastDifficulty - 1));
+    }
     return clampDiff(target);
   }
 

@@ -60,16 +60,30 @@ export async function resolveKeysForUser(userId: string): Promise<ResolvedKeys> 
     .eq('active', true);
 
   const userKeys: Partial<Record<AIProviderId, string>> = {};
+  const decryptFails: string[] = [];
   if (keyRows) {
     for (const r of keyRows as Array<{ provider: string; encrypted_key: string }>) {
       try {
         const plain = await decryptKey(r.encrypted_key, secret);
         userKeys[r.provider as AIProviderId] = plain;
-      } catch {
-        // skip — corrupted entry; user can re-add
+      } catch (e) {
+        // Decryption failure usually means the KEY_ENCRYPTION_SECRET on
+        // this server doesn't match what was used when the key was saved
+        // (e.g., rotated secret, or saving on localhost vs reading on
+        // Vercel with different env vars). Surface this so we can debug
+        // the "I saved 6 keys but only 2 are tried" mystery.
+        decryptFails.push(`${r.provider}:${(e as Error).message}`);
       }
     }
   }
+  // Log key resolution status — visible in Vercel function logs.
+  // A user expecting N saved providers but seeing M < N here points to
+  // either a missing row in user_api_keys OR a decryption failure (above).
+  console.log(
+    `[key-resolver] user=${userId.slice(0, 8)} ` +
+    `byok=[${Object.keys(userKeys).join(',')}] (${Object.keys(userKeys).length}/${keyRows?.length ?? 0} decrypted)` +
+    (decryptFails.length > 0 ? ` decrypt-fails=[${decryptFails.join('; ')}]` : ''),
+  );
 
   // 2) Check per-user shared-key block.
   const { data: blockRow } = await sb

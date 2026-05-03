@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Wizard } from '@/components/Wizard';
 import { cn } from '@/lib/utils';
 import { getBrowserClient } from '@/lib/supabase/browser';
+import { KeyReminder } from './KeyReminder';
 
 const NAV = [
   { href: '/practice',  label: 'Play',     icon: '🎮' },
@@ -254,6 +255,11 @@ export function AppShell({ children, user, v1Url }: AppShellProps) {
           </div>
         )}
       </header>
+
+      {/* Nudge new users (with <2 keys) to add provider keys. Self-mounts:
+          shows modal first time, banner thereafter, nothing once 2+ keys
+          are saved. Only render for authed users. */}
+      {user && <KeyReminder />}
 
       <main id="main" className="min-h-[calc(100vh-4rem)]">
         {children}

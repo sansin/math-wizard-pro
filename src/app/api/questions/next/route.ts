@@ -103,39 +103,106 @@ export async function POST(req: Request) {
   //    first, then nearby difficulties (±1). Adjacent-difficulty fallback
   //    keeps the user practicing instead of burning a generation cycle
   //    when the exact level happens to be empty.
+  //
+  //    "Avoid" set merges TWO sources:
+  //      • body.avoidPromptHashes — sent by the client, hashes from the
+  //        current session
+  //      • recently-attempted question_ids from the attempts table —
+  //        prevents serving questions the user already did in PREVIOUS
+  //        sessions (no repeats unless we've truly exhausted the pool)
   const targetDifficulties = [
     pick.difficulty,
     Math.min(5, pick.difficulty + 1),
     Math.max(1, pick.difficulty - 1),
   ].filter((v, i, arr) => arr.indexOf(v) === i); // dedupe
 
-  const { data: cacheRows } = await sb
-    .from('questions')
-    .select('id, prompt_hash, prompt, answer, hints, solution, source, provider, difficulty, skill_id, verified, created_at, served_count, correct_count, flagged_count')
-    .eq('skill_id', pick.skill.id)
-    .in('difficulty', targetDifficulties)
-    .eq('verified', true)
-    .order('served_count', { ascending: true })
-    .limit(40);
+  // Pull the user's recent attempt IDs in parallel with the cache lookup.
+  // Limit 200 = ~last several sessions; pool typically <50 per (skill,diff)
+  // so this safely covers cross-session deduplication without bloating.
+  //
+  // The questions table is GLOBAL across all users — every verified
+  // generation feeds the same pool. Per-user "have I seen this?" filtering
+  // happens via the attempts table, not by partitioning the cache.
+  const [{ data: cacheRows }, { data: recentAttemptRows }] = await Promise.all([
+    sb
+      .from('questions')
+      .select('id, prompt_hash, prompt, answer, hints, solution, source, provider, difficulty, skill_id, verified, created_at, served_count, correct_count, flagged_count')
+      .eq('skill_id', pick.skill.id)
+      .in('difficulty', targetDifficulties)
+      .eq('verified', true)
+      // Quality filter: skip questions that have been flagged 3+ times.
+      // Flags accumulate when users click "report" on a bad question;
+      // 3 reports = enough signal to retire it from the active pool.
+      .lt('flagged_count', 3)
+      .order('served_count', { ascending: true })
+      .limit(60),
+    sb
+      .from('attempts')
+      .select('question_id')
+      .eq('user_id', userId)
+      .order('attempted_at', { ascending: false })
+      .limit(200),
+  ]);
 
-  const avoid = new Set(body.avoidPromptHashes);
-  const cached = (cacheRows ?? []) as Array<Record<string, unknown>>;
+  const avoidHashes = new Set(body.avoidPromptHashes);
+  const userSeenIds = new Set(
+    (recentAttemptRows ?? []).map((r) => (r as { question_id: string }).question_id),
+  );
 
-  // Prefer exact-difficulty hits, then ±1 in the order we listed.
-  const fromCache = (() => {
-    for (const d of targetDifficulties) {
-      const hit = cached.find(
-        (q) => !avoid.has(q.prompt_hash as string) && q.difficulty === d,
-      );
-      if (hit) return hit;
+  // De-prioritize questions that have a low correctness rate AFTER enough
+  // plays. A question with 1/10 correct after being shown to 10 users is
+  // probably broken (wrong answer, ambiguous, etc.) — push it to the back
+  // of the candidate list. We don't drop it entirely (sometimes a hard
+  // question is just hard); we just let the verified-good ones surface
+  // first.
+  const cached = ((cacheRows ?? []) as Array<Record<string, unknown>>)
+    .map((q) => {
+      const served = Number(q.served_count) || 0;
+      const correct = Number(q.correct_count) || 0;
+      const correctRate = served >= 10 ? correct / served : 1; // assume good until proven otherwise
+      return { q, correctRate };
+    })
+    .sort((a, b) => {
+      // Primary sort: correctness rate (desc) when both have enough data.
+      const aReliable = (a.q.served_count as number) >= 10;
+      const bReliable = (b.q.served_count as number) >= 10;
+      if (aReliable && bReliable) return b.correctRate - a.correctRate;
+      // Secondary: served_count ascending (spread load).
+      return (a.q.served_count as number) - (b.q.served_count as number);
+    })
+    .map((x) => x.q);
+
+  // Helper: a question is "available" if neither its hash is in the
+  // session-avoid set nor its id is in the user's recent attempts.
+  const isAvailable = (q: Record<string, unknown>) =>
+    !avoidHashes.has(q.prompt_hash as string) && !userSeenIds.has(q.id as string);
+
+  // Prefer exact difficulty, then +1, then -1. Within a difficulty bucket,
+  // pick the LEAST-served question first (already pre-sorted by SQL).
+  let fromCache: Record<string, unknown> | undefined;
+  let fromCacheReason: 'exact' | 'adjacent' | 'reused' | undefined;
+  for (const d of targetDifficulties) {
+    fromCache = cached.find((q) => q.difficulty === d && isAvailable(q));
+    if (fromCache) {
+      fromCacheReason = d === pick.difficulty ? 'exact' : 'adjacent';
+      break;
     }
-    return undefined;
-  })();
+  }
+
+  // Last-resort: if the user has cycled through every cached question
+  // and we'd otherwise generate fresh, prefer reusing a CACHED question
+  // they haven't seen this session (even if they saw it long ago) over
+  // burning an AI call.
+  if (!fromCache) {
+    fromCache = cached.find((q) => !avoidHashes.has(q.prompt_hash as string));
+    if (fromCache) fromCacheReason = 'reused';
+  }
 
   console.log(
-    `[questions/next] skill=${pick.skill.id} diff=${pick.difficulty} ` +
-    `cache=${cached.length} (across diff ${targetDifficulties.join(',')}) avoid=${avoid.size} ` +
-    `served=${fromCache ? `cache:${(fromCache.prompt_hash as string).slice(0, 6)}@d${fromCache.difficulty}` : 'will-generate'}`,
+    `[questions/next] skill=${pick.skill.id} target=d${pick.difficulty} ` +
+    `pool=${cached.length} (across d${targetDifficulties.join(',')}) ` +
+    `session-avoid=${avoidHashes.size} user-seen=${userSeenIds.size} ` +
+    `served=${fromCache ? `cache:${(fromCache.prompt_hash as string).slice(0, 6)}@d${fromCache.difficulty}/${fromCacheReason}` : 'will-generate'}`,
   );
 
   if (fromCache) {
@@ -271,49 +338,57 @@ export async function POST(req: Request) {
   const winningAttempt = batch.attempts.find((a) => a.ok);
 
   // Cold-path warm-up: schedule a background generation of 4 more
-  // questions for this (skill, difficulty) so the SECOND user gets a
-  // cache hit. Uses Next.js `after()` so this work happens AFTER the
-  // response is sent — the user doesn't wait for it.
+  // questions across DIFFERENT difficulties so the cache covers the
+  // fuzzy-match window (D-1, D, D+1). Without this, every difficulty
+  // bump triggers a fresh cold-path call.
   if (isColdPath && batch.questions.length === 1) {
     const skill = pick.skill;
     const difficulty = pick.difficulty;
     const userKeys = keys.ctx;
     const firstHash = first.promptHash;
     const avoidForRefill = [...body.avoidPromptHashes, firstHash];
+
+    // Spread the warm-up: 2 at current difficulty, 1 at +1, 1 at -1.
+    const warmupTargets: Array<{ difficulty: 1 | 2 | 3 | 4 | 5; count: number }> = [
+      { difficulty, count: 2 },
+    ];
+    if (difficulty < 5) warmupTargets.push({ difficulty: (difficulty + 1) as 1 | 2 | 3 | 4 | 5, count: 1 });
+    if (difficulty > 1) warmupTargets.push({ difficulty: (difficulty - 1) as 1 | 2 | 3 | 4 | 5, count: 1 });
+
     after(async () => {
-      try {
-        const refill = await generateBatch(
-          {
-            skill,
-            difficulty,
-            count: 4,
-            avoidPromptHashes: avoidForRefill,
-          },
-          userKeys,
-        );
-        if (refill.questions.length > 0) {
-          const sb2 = getServiceClient();
-          await sb2.from('questions').upsert(
-            refill.questions.map((q) => ({
-              id: q.id,
-              prompt_hash: q.promptHash,
-              skill_id: q.skillId,
-              difficulty: q.difficulty,
-              prompt: q.prompt,
-              answer: q.answer,
-              hints: q.hints,
-              solution: q.solution,
-              source: q.source,
-              provider: q.provider,
-              verified: true,
-            })),
-            { onConflict: 'prompt_hash' },
+      let totalAdded = 0;
+      const sb2 = getServiceClient();
+      // Run sequentially so we don't fire 3 API calls at once and trigger rate limits.
+      for (const t of warmupTargets) {
+        try {
+          const refill = await generateBatch(
+            { skill, difficulty: t.difficulty, count: t.count, avoidPromptHashes: avoidForRefill },
+            userKeys,
           );
-          console.log(`[questions/next] cold-path warmed cache: skill=${skill.id} diff=${difficulty} +${refill.questions.length}`);
+          if (refill.questions.length > 0) {
+            await sb2.from('questions').upsert(
+              refill.questions.map((q) => ({
+                id: q.id,
+                prompt_hash: q.promptHash,
+                skill_id: q.skillId,
+                difficulty: q.difficulty,
+                prompt: q.prompt,
+                answer: q.answer,
+                hints: q.hints,
+                solution: q.solution,
+                source: q.source,
+                provider: q.provider,
+                verified: true,
+              })),
+              { onConflict: 'prompt_hash' },
+            );
+            totalAdded += refill.questions.length;
+          }
+        } catch (e) {
+          console.warn(`[questions/next] warm-up at d${t.difficulty} failed: ${(e as Error).message}`);
         }
-      } catch (e) {
-        console.warn(`[questions/next] cold-path refill failed: ${(e as Error).message}`);
       }
+      console.log(`[questions/next] cold-path warmed cache: skill=${skill.id} +${totalAdded} across difficulties ${warmupTargets.map((t) => 'd' + t.difficulty).join(',')}`);
     });
   }
 
