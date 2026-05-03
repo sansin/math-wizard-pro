@@ -10,6 +10,21 @@
 const FB_API_KEY = process.env.LEGACY_FIREBASE_API_KEY!;
 const FB_PROJECT = process.env.LEGACY_FIREBASE_PROJECT_ID!;
 
+/**
+ * Firebase Web API keys often have HTTP-Referer restrictions configured
+ * (so a leaked key can't be abused from arbitrary origins). Server-side
+ * fetches naturally have no referer, so Firebase 403s with
+ * "REQUESTS FROM REFERER <EMPTY> ARE BLOCKED".
+ *
+ * Workaround: send a Referer that matches an allowlisted origin. We use
+ * LEGACY_FIREBASE_REFERER if set, otherwise fall back to the v1 site URL
+ * which is almost always already on the allowlist.
+ */
+const FB_REFERER =
+  process.env.LEGACY_FIREBASE_REFERER ||
+  process.env.NEXT_PUBLIC_V1_URL ||
+  'https://sansin.github.io/math-wizard';
+
 interface SignInResponse {
   idToken: string;
   email: string;
@@ -21,7 +36,13 @@ export async function signInLegacy(email: string, password: string): Promise<Sig
     `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FB_API_KEY}`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Match the v1 site's referrer so Firebase's referer-restriction
+        // policy lets the server-side call through. Same origin v1 is
+        // hosted from is almost always already on the allowlist.
+        Referer: FB_REFERER,
+      },
       body: JSON.stringify({ email, password, returnSecureToken: true }),
     },
   );
@@ -73,7 +94,12 @@ export interface LegacyProfile {
 export async function fetchLegacyProfile(uid: string, idToken: string): Promise<LegacyProfile | null> {
   const r = await fetch(
     `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents/users/${uid}`,
-    { headers: { Authorization: `Bearer ${idToken}` } },
+    {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        Referer: FB_REFERER,
+      },
+    },
   );
   if (r.status === 404) return null;
   if (!r.ok) throw new Error(`firestore ${r.status}`);
@@ -115,7 +141,11 @@ export async function fetchLegacyAnswers(uid: string, idToken: string, max = 100
     `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents:runQuery`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+        Referer: FB_REFERER,
+      },
       body: JSON.stringify(body),
     },
   );
