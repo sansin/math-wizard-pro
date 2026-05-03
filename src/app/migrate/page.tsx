@@ -51,7 +51,15 @@ export default function MigratePage() {
         body: JSON.stringify({ email: legacyEmail, password: legacyPassword }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.detail || d.error || 'Could not load Classic data');
+      if (!res.ok) {
+        if (d.error === 'migration-not-configured') {
+          throw new Error('Classic import isn’t available on this deployment yet. The admin needs to add the v1 Firebase credentials. Try again later.');
+        }
+        if (d.error === 'classic-auth-failed') {
+          throw new Error('Couldn’t sign in to Classic Math Wizard with those credentials. Double-check your email and password — those need to be the ones from the OLD app, not Math Wizard Pro.');
+        }
+        throw new Error(d.detail || d.error || 'Could not load Classic data');
+      }
       setPreview(d.preview);
       setStep('confirm');
     } catch (e) {

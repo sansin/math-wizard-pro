@@ -23,6 +23,13 @@ export async function POST(req: Request) {
   try { body = Body.parse(await req.json()); }
   catch (e) { return NextResponse.json({ error: 'invalid', detail: (e as Error).message }, { status: 400 }); }
 
+  if (!process.env.LEGACY_FIREBASE_API_KEY || !process.env.LEGACY_FIREBASE_PROJECT_ID) {
+    return NextResponse.json({
+      error: 'migration-not-configured',
+      detail: 'The Classic Math Wizard import flow is not configured on this server.',
+    }, { status: 503 });
+  }
+
   // 1. Verify legacy creds
   let signed;
   try { signed = await signInLegacy(body.email, body.legacyPassword); }

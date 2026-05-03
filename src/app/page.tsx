@@ -1,13 +1,21 @@
 /**
  * Landing page (unauthenticated). Hero + features + CTA.
  *
+ * If the visitor is already signed in, we send them straight to /practice
+ * — clicking the logo from inside the app shouldn't drop them on the
+ * marketing page.
+ *
  * Compared to v1, the visual language is calmer — fewer gradients, more
  * white space, real wizard mascot, and intentional micro-interactions.
  */
 
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Wizard } from '@/components/Wizard';
 import { Button } from '@/components/ui/Button';
+import { getServerClient } from '@/lib/supabase/server';
+
+export const dynamic = 'force-dynamic';
 
 const FEATURES = [
   {
@@ -48,7 +56,13 @@ const STEPS = [
   { n: 3, title: 'Practice & level up', body: 'Answer adaptive questions, earn XP, see step-by-step solutions.' },
 ];
 
-export default function Landing() {
+export default async function Landing() {
+  // If already signed in, go straight to practice — the marketing landing
+  // is for visitors who haven't created an account yet.
+  const sb = await getServerClient();
+  const { data: auth } = await sb.auth.getUser();
+  if (auth?.user) redirect('/practice');
+
   return (
     <div className="min-h-screen">
       {/* Top bar */}

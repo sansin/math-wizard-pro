@@ -2,10 +2,11 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Wizard } from '@/components/Wizard';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { getBrowserClient } from '@/lib/supabase/browser';
 
 const NAV = [
   { href: '/practice',  label: 'Play',     icon: '🎮' },
@@ -22,13 +23,42 @@ export interface AppShellProps {
 
 export function AppShell({ children, user, v1Url }: AppShellProps) {
   const path = usePathname();
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [userMenuOpen, setUserMenuOpen] = React.useState(false);
+  const userMenuRef = React.useRef<HTMLDivElement>(null);
+
+  // Click-outside handling for the user dropdown.
+  React.useEffect(() => {
+    if (!userMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [userMenuOpen]);
+
+  async function handleSignOut() {
+    setUserMenuOpen(false);
+    const sb = getBrowserClient();
+    await sb.auth.signOut();
+    router.push('/');
+    router.refresh();
+  }
 
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-ink-100 bg-white/85 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2 group">
+          {/* Logo — for authed users this links to /practice (the home of
+              the app), not the marketing landing. The page.tsx redirect
+              handles the case if they go to / directly. */}
+          <Link
+            href={user ? '/practice' : '/'}
+            className="flex items-center gap-2 group"
+          >
             <Wizard size={36} animated={false} />
             <span className="font-display font-bold text-lg text-ink-900 group-hover:text-wizard-600 transition-colors">
               Math Wizard <span className="text-wizard-500">Pro</span>
@@ -82,6 +112,69 @@ export function AppShell({ children, user, v1Url }: AppShellProps) {
               </a>
             ) : null}
 
+            {/* User dropdown — visible on all viewport sizes when authed,
+                holding name/email + Settings link + Sign out. */}
+            {user && (
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setUserMenuOpen((o) => !o)}
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-wizard-100 text-wizard-700 font-display font-bold text-sm hover:bg-wizard-200 transition-colors"
+                  aria-label="Account menu"
+                  aria-expanded={userMenuOpen}
+                  aria-haspopup="menu"
+                  title={user.name}
+                >
+                  {user.name?.charAt(0).toUpperCase() || '?'}
+                </button>
+                {userMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-ink-100 bg-white shadow-card-hover py-1 animate-slide-down z-50"
+                  >
+                    <div className="px-3 py-2 border-b border-ink-100">
+                      <div className="text-sm font-bold text-ink-900 truncate">{user.name}</div>
+                      <div className="text-xs text-ink-500">Lv. {user.level} · {user.xp} XP</div>
+                    </div>
+                    <Link
+                      href="/settings"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="block px-3 py-2 text-sm text-ink-800 hover:bg-ink-50 font-medium"
+                      role="menuitem"
+                    >
+                      ⚙️ Settings
+                    </Link>
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="block px-3 py-2 text-sm text-ink-800 hover:bg-ink-50 font-medium"
+                      role="menuitem"
+                    >
+                      📊 Progress
+                    </Link>
+                    {v1Url && (
+                      <a
+                        href={v1Url}
+                        className="block px-3 py-2 text-sm text-ink-600 hover:bg-ink-50 font-medium md:hidden"
+                        role="menuitem"
+                      >
+                        ← Classic Math Wizard
+                      </a>
+                    )}
+                    <div className="border-t border-ink-100 my-1" />
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      role="menuitem"
+                      className="block w-full text-left px-3 py-2 text-sm font-semibold text-ember-700 hover:bg-ember-50"
+                    >
+                      🚪 Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-xl hover:bg-ink-100"
@@ -126,6 +219,15 @@ export function AppShell({ children, user, v1Url }: AppShellProps) {
                 >
                   ← Classic Math Wizard
                 </a>
+              )}
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); handleSignOut(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold text-ember-700 hover:bg-ember-50"
+                >
+                  🚪 Sign out
+                </button>
               )}
             </nav>
           </div>
