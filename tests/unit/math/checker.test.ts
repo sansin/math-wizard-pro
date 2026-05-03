@@ -82,5 +82,74 @@ describe('checkAnswer', () => {
     it('rejects different expression', () => {
       expect(checkAnswer(parseUserAnswer('5x'), expected).correct).toBe(false);
     });
+    it("rejects when user's input parses as numeric (expression needs text)", () => {
+      const r = checkAnswer(parseUserAnswer('6'), expected);
+      expect(r.correct).toBe(false);
+      expect(r.reason).toBe('expression-needs-text');
+    });
+  });
+
+  describe('error paths and edge cases', () => {
+    it('propagates parser invalidity', () => {
+      // The parser returns kind:'invalid' for unparseable input.
+      const r = checkAnswer(parseUserAnswer('@@@'), { type: 'numeric', value: 5 });
+      expect(r.correct).toBe(false);
+      // Reason should come from the parser, not from the type-mismatch path.
+      expect(r.reason).toBeTruthy();
+    });
+
+    it('numeric: rejects when input parses as text', () => {
+      const r = checkAnswer(parseUserAnswer('hello'), { type: 'numeric', value: 5 });
+      expect(r.correct).toBe(false);
+      expect(r.reason).toBe('expected-numeric');
+    });
+
+    it('fraction: rejects when input parses as text', () => {
+      const r = checkAnswer(parseUserAnswer('half'), {
+        type: 'fraction',
+        numerator: 1,
+        denominator: 2,
+      });
+      expect(r.correct).toBe(false);
+      expect(r.reason).toBe('expected-numeric');
+    });
+
+    it('text: rejects when input parses as fraction (not text or numeric)', () => {
+      const r = checkAnswer(parseUserAnswer('1/2'), {
+        type: 'text',
+        value: 'half',
+      });
+      expect(r.correct).toBe(false);
+      expect(r.reason).toBe('expected-text');
+    });
+
+    it('text: accepts numeric input (coerced to string for comparison)', () => {
+      const r = checkAnswer(parseUserAnswer('5'), {
+        type: 'text',
+        value: '5',
+      });
+      expect(r.correct).toBe(true);
+    });
+
+    it('text: respects caseSensitive when true', () => {
+      const expected: AnswerKind = { type: 'text', value: 'Hello', caseSensitive: true };
+      expect(checkAnswer(parseUserAnswer('Hello'), expected).correct).toBe(true);
+      // 'hello' should NOT match because case-sensitive comparison is exact.
+      const r = checkAnswer(parseUserAnswer('hello'), expected);
+      expect(r.correct).toBe(false);
+      expect(r.reason).toBe('text-mismatch');
+    });
+
+    it('multipleChoice: rejects non-letter, non-numeric input', () => {
+      const expected: AnswerKind = {
+        type: 'multipleChoice',
+        correctIndex: 0,
+        options: ['A', 'B'],
+      };
+      // Text that isn't a single A-D letter falls through with idx = -1 → wrong.
+      const r = checkAnswer(parseUserAnswer('xyz'), expected);
+      expect(r.correct).toBe(false);
+      expect(r.reason).toBe('wrong-choice');
+    });
   });
 });
