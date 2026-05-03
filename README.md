@@ -429,6 +429,175 @@ cache lookup so other students stop seeing it.
 For the full threat model and key-handling notes, see
 [`docs/SECURITY.md`](docs/SECURITY.md).
 
+## Restoring to a known-good state
+
+Each milestone of the project is tagged in git, so you always have an
+immutable reference point to roll back to. The current production-quality
+release is **v2.1.0**.
+
+### List available tags
+
+```bash
+git tag -l                        # all tags
+git show v2.1.0 --stat | head -20 # what was in that release
+```
+
+### Roll back the code
+
+```bash
+# Option A: temporary inspection (detached HEAD)
+git checkout v2.1.0
+
+# Option B: create a branch from the tag and work from there
+git checkout -b restore-v2.1.0 v2.1.0
+
+# Option C: hard-reset main back to the tag (DESTRUCTIVE — only on a
+# branch that hasn't been shared, or after coordinating with collaborators)
+git reset --hard v2.1.0
+git push --force-with-lease origin main
+```
+
+To redeploy the rolled-back code:
+- **Vercel:** Settings → Git → Production Branch → point at the
+  rolled-back branch (e.g. `restore-v2.1.0`), then trigger a new deploy.
+- **Cloudflare Pages:** equivalent — set the production branch in the
+  Pages project settings.
+
+### Restore the database
+
+Supabase keeps **7 days of daily backups** automatically on the free
+tier. Restore via the dashboard:
+
+```
+Supabase Dashboard → your project → Database → Backups → Restore
+```
+
+For longer retention, dump the question pool manually after big
+seed runs (the pool takes hours of API time to rebuild from scratch):
+
+```bash
+# Save the verified-question pool + skill catalog + mastery rows
+pg_dump "$DATABASE_URL" --schema=public --data-only \
+  -t questions -t skills -t skill_mastery \
+  > backup-$(date +%Y%m%d).sql
+
+# Restore from that file
+psql "$DATABASE_URL" < backup-20260503.sql
+```
+
+If the `questions` table got nuked entirely and you don't have a backup,
+you can rebuild from scratch:
+
+```bash
+npm run seed:cache -- --target=100   # 6-10 hours, $0 with free keys
+npm run audit:fix                    # bring it to ship quality
+```
+
+### Restore environment variables
+
+If you redeploy to a fresh host or wipe `.env.local`:
+
+```bash
+# Vercel: pull production env vars into a local .env.local
+vercel env pull .env.local
+
+# Cloudflare Pages: copy from dashboard → Settings → Environment Variables
+```
+
+**Critical:** `KEY_ENCRYPTION_SECRET` must be the **same value** as
+before. Rotating it makes every BYOK key in `user_api_keys`
+undecryptable (users would see "Tried 0 of N providers" errors and
+have to re-enter their keys via Settings). Keep the original secret
+in a password manager outside the repo.
+
+### Re-apply migrations
+
+Migrations are in `supabase/migrations/` and are idempotent (use
+`if not exists` etc.). To bring a fresh DB up to the current schema:
+
+```bash
+npx supabase link --project-ref <your-ref>
+npx supabase db push
+```
+
+Or paste the SQL files into the Supabase SQL editor in numerical
+order. The most recent (`20260503000001_add_audit_state.sql`) adds
+the audit-state columns the audit pipeline depends on.
+
+### Sanity-check the recovery
+
+```bash
+npm install
+npm run typecheck                                          # TS strict
+npm test                                                   # 152 unit + integration
+npm run dev                                                # boot the app
+psql "$DATABASE_URL" -f scripts/quality-spot-check.sql     # eyeball the pool
+```
+
+## For future agents and contributors
+
+This repo is built with the assumption that an LLM agent (Claude, GPT,
+etc.) might pick up work on it from a fresh context. Two artifacts
+exist to make that handoff smooth:
+
+### `CLAUDE.md` at the repo root
+
+The canonical agent-facing context. **Read it before making changes.**
+Covers:
+- Code conventions (TypeScript strict, no emojis, comment the WHY)
+- Architecture cheat sheet
+- Critical workflows (dev, seed, audit, ship)
+- 10 hard-won gotchas (KEY_ENCRYPTION_SECRET rotation, dotenv
+  hoisting, LaTeX-in-JSON repair, Supabase 1000-row paging, etc.)
+- Provider routing rationale (why Mistral is at position 3, not 1)
+- Things to NEVER do without thinking carefully
+- Production state snapshot
+
+If you're an LLM agent starting fresh on this project, your first
+action should be:
+
+```
+Read CLAUDE.md
+```
+
+### `docs/` — deeper dives
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design
+- [`docs/SECURITY.md`](docs/SECURITY.md) — threat model + key handling
+- [`docs/SETUP.md`](docs/SETUP.md) — step-by-step deploy
+- [`docs/SEED_CACHE.md`](docs/SEED_CACHE.md) — seed pipeline runbook
+- [`docs/GO_LIVE.md`](docs/GO_LIVE.md) — pre-launch checklist
+
+### Bootstrapping a new chat / agent
+
+Drop this as the first user message in a fresh conversation:
+
+```
+I'm working on Math Wizard Pro, a Next.js 16 + Supabase + 10-provider
+AI router K-12 math practice app. The repo is at
+~/Documents/Claude/Projects/Math Wizard/math-wizard-pro.
+
+Before doing anything, read CLAUDE.md at the repo root. It has the
+conventions, gotchas, and workflows you need.
+```
+
+That's enough context for any reasonably capable agent to pick up
+where the previous one left off. The memory system (if available)
+will fill in the operator preferences and recent context; CLAUDE.md
+covers everything project-specific.
+
+### Updating CLAUDE.md as the project evolves
+
+When you discover a new gotcha or change a convention:
+
+1. Add it to `CLAUDE.md` immediately, with the reasoning.
+2. Reference the file path or commit SHA so the next reader can verify.
+3. Keep the production-state snapshot section current after major
+   milestones (tag releases, big audit runs, schema migrations).
+
+Treat `CLAUDE.md` like any other piece of code — review changes,
+commit with descriptive messages, and don't let it drift.
+
 ## Roadmap (post-launch)
 
 These were intentionally cut from v2.0 to keep scope tight; tracked in issues:
