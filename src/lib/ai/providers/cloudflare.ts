@@ -69,8 +69,11 @@ export const cloudflareProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[cloudflare] ${res.status} model=${MODEL}: ${trimmed}`);
+      // 429s are expected at scale (free-tier daily caps); the router
+      // tracks them and the seed script benches the provider. Skip the
+      // loud console.error so logs stay readable.
       if (res.status === 429) throw err('rate-limit', `cf 429: ${trimmed}`);
+      console.error(`[cloudflare] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `cf ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `cf ${res.status}: ${trimmed}`);
       throw err('bad-request', `cf ${res.status}: ${trimmed}`, false);

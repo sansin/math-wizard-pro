@@ -44,8 +44,9 @@ export const groqProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[groq] ${res.status}: ${trimmed}`);
+      // 429s are expected at scale; let the router/seed script handle.
       if (res.status === 429) throw err('rate-limit', `groq 429: ${trimmed}`);
+      console.error(`[groq] ${res.status}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `groq ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `groq ${res.status}: ${trimmed}`);
       throw err('bad-request', `groq ${res.status}: ${trimmed}`, false);

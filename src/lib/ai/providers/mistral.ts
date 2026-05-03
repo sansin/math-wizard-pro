@@ -45,8 +45,8 @@ export const mistralProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[mistral] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 429) throw err('rate-limit', `mistral 429: ${trimmed}`);
+      console.error(`[mistral] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `mistral ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `mistral ${res.status}: ${trimmed}`);
       throw err('bad-request', `mistral ${res.status}: ${trimmed}`, false);

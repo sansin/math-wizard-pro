@@ -20,7 +20,15 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,md}\"",
     "validate": "npm run typecheck && npm run lint && npm run test",
     "seed:cache": "tsx scripts/seed-cache.ts",
-    "seed:cache:dry": "tsx scripts/seed-cache.ts --dryRun"
+    "seed:cache:dry": "tsx scripts/seed-cache.ts --dryRun",
+    "seed:curated": "tsx scripts/upload-curated-questions.ts",
+    "seed:curated:dry": "tsx scripts/upload-curated-questions.ts --dry",
+    "audit:questions": "tsx scripts/audit-questions.ts",
+    "audit:questions:all": "tsx scripts/audit-questions.ts --all --reaudit-all",
+    "audit:fix": "tsx scripts/audit-questions.ts --all --fix",
+    "audit:fix:dry": "tsx scripts/audit-questions.ts --all --fixDry",
+    "audit:fix:full": "tsx scripts/audit-questions.ts --all --fix --reaudit-all",
+    "ship:check": "npm run audit:fix && echo '\\n✅ Pool is ship-ready'"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",

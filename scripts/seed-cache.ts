@@ -25,7 +25,11 @@
  *   - Cost: $0 with free tiers; ~$1-3 with paid Claude/OpenAI
  */
 
-import 'dotenv/config';
+// MUST be the first import — guarantees .env.local is loaded before any
+// other module reads process.env. (router.ts captures AI_PROVIDER_ORDER
+// at module-load time, so loading env later is too late.)
+import './_load-env';
+
 import { createClient } from '@supabase/supabase-js';
 import { generateBatch } from '../src/lib/ai/generator';
 import type { RouterContext } from '../src/lib/ai/router';
@@ -112,6 +116,15 @@ async function main() {
     console.error('❌ No AI provider keys found in env. Set at least GEMINI_API_KEY in .env.local.');
     process.exit(1);
   }
+  if (availableProviders.length === 1) {
+    console.warn(
+      `⚠ Only 1 provider key detected (${availableProviders[0]}). ` +
+      `If this provider rate-limits, the run will stall. ` +
+      `Recommended: set 3+ free-tier keys (GEMINI, CLOUDFLARE_*, GROQ, CEREBRAS) for resilience. ` +
+      `Continuing in 3s — Ctrl+C to abort.`,
+    );
+    await new Promise((r) => setTimeout(r, 3000));
+  }
   console.log(`   providers: [${availableProviders.join(', ')}]`);
 
   // Load skills
@@ -179,6 +192,77 @@ async function main() {
   let totalRejected = 0;
   const startedAt = Date.now();
 
+  // ── Cross-batch provider health tracking ─────────────────────────────
+  // When a provider returns rate-limit / quota errors repeatedly, we bench
+  // it for the rest of the run. Daily-quota errors (Cloudflare neurons,
+  // Gemini RPD, Groq TPD, etc.) won't refresh until midnight, so a short
+  // cooldown just lets the provider come back, fail again, and re-bench.
+  // We bench permanently for the rest of THIS run; you can re-run
+  // tomorrow and the script starts fresh.
+  //
+  //   - 3 consecutive rate-limit errors → bench for the rest of the run
+  //   - 5 consecutive any errors        → bench for the rest of the run
+  //   - any success                     → reset failure count
+  const providerHealth = new Map<AIProviderId, {
+    consecutiveRateLimits: number;
+    consecutiveErrors: number;
+    benchedUntil: number; // epoch ms; 0 means active; Number.MAX_SAFE_INTEGER = run-permanent
+    totalWins: number;
+    totalFails: number;
+  }>();
+  const BENCH_PERMANENT = Number.MAX_SAFE_INTEGER;
+
+  function getHealth(p: AIProviderId) {
+    let h = providerHealth.get(p);
+    if (!h) {
+      h = { consecutiveRateLimits: 0, consecutiveErrors: 0, benchedUntil: 0, totalWins: 0, totalFails: 0 };
+      providerHealth.set(p, h);
+    }
+    return h;
+  }
+
+  function unhealthySet(): Set<AIProviderId> {
+    const now = Date.now();
+    const out = new Set<AIProviderId>();
+    for (const [p, h] of providerHealth.entries()) {
+      if (h.benchedUntil > now) out.add(p);
+    }
+    return out;
+  }
+
+  function recordAttempts(batchAttempts: Array<{ provider: string; ok: boolean; error?: string }>) {
+    const winner = batchAttempts.find((a) => a.ok)?.provider as AIProviderId | undefined;
+    for (const a of batchAttempts) {
+      const p = a.provider as AIProviderId;
+      const h = getHealth(p);
+      if (a.ok) {
+        h.totalWins++;
+        h.consecutiveErrors = 0;
+        h.consecutiveRateLimits = 0;
+        if (h.benchedUntil) {
+          console.log(`    🟢 ${p} back online`);
+          h.benchedUntil = 0;
+        }
+      } else {
+        h.totalFails++;
+        h.consecutiveErrors++;
+        const isRateLimit = (a.error ?? '').toLowerCase().includes('rate') ||
+                            (a.error ?? '').toLowerCase().includes('quota');
+        if (isRateLimit) h.consecutiveRateLimits++;
+        const benchAfter = isRateLimit ? 3 : 5;
+        if ((isRateLimit ? h.consecutiveRateLimits : h.consecutiveErrors) >= benchAfter && !h.benchedUntil) {
+          // Bench permanently for this run. Daily quotas don't refresh
+          // in 30min, so re-trying is wasted RTTs.
+          h.benchedUntil = BENCH_PERMANENT;
+          console.log(`    🔻 benching ${p} for the rest of this run (${a.error ?? 'unknown'})`);
+        }
+      }
+      // Don't penalize providers that came after the winner — the router
+      // short-circuits on first success, so they never even got tried.
+      if (winner && a.provider === winner) break;
+    }
+  }
+
   for (let jobIdx = 0; jobIdx < jobs.length; jobIdx++) {
     const job = jobs[jobIdx]!;
     let added = 0;
@@ -213,8 +297,9 @@ async function main() {
             avoidPromptHashes: avoidHashes.slice(-50),
           },
           ctx,
-          { timeoutMs: 60_000 },
+          { timeoutMs: 60_000, excluded: unhealthySet() },
         );
+        recordAttempts(batch.attempts);
         if (batch.questions.length === 0) {
           totalRejected++;
           console.warn(`    ↳ batch returned 0 questions; attempts: ${attempts}/${maxAttempts}`);
@@ -246,14 +331,34 @@ async function main() {
         added += batch.questions.length;
         for (const q of batch.questions) avoidHashes.push(q.promptHash);
         const winningProvider = batch.attempts.find((a) => a.ok)?.provider ?? '?';
-        console.log(`    ↳ +${batch.questions.length} via ${winningProvider} (total +${added}/${job.need})`);
+        const failed = batch.attempts.filter((a) => !a.ok).map((a) => a.provider);
+        const failNote = failed.length > 0 ? ` (skipped ${failed.join(',')})` : '';
+        console.log(`    ↳ +${batch.questions.length} via ${winningProvider}${failNote} (total +${added}/${job.need})`);
       } catch (e) {
-        const msg = (e as Error).message ?? '';
+        const err = e as Error & { attempts?: Array<{ provider: string; ok: boolean; error?: string }> };
+        const msg = err.message ?? '';
+        // If this was a NoProviderError, the router has structured attempt
+        // info on the exception — record it so the health tracker can
+        // bench providers even when every candidate failed.
+        if (Array.isArray(err.attempts)) recordAttempts(err.attempts);
         console.warn(`    ↳ attempt ${attempts} failed: ${msg.slice(0, 200)}`);
+
         // Long backoff if we're rate-limited
         if (msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('quota')) {
           console.log('    ↳ backing off 30s due to rate limit...');
           await new Promise((r) => setTimeout(r, 30_000));
+        }
+
+        // If every provider in our chain has been benched, no amount of
+        // retrying will help. Bail this pair (and possibly the whole run).
+        if (msg.toLowerCase().includes('no ai provider')) {
+          const aliveCount = Object.entries(ctx.adminKeys)
+            .filter(([p, v]) => v && !unhealthySet().has(p as AIProviderId))
+            .length;
+          if (aliveCount === 0) {
+            console.warn(`    ⛔ All providers benched. Bailing this pair; will retry next run.`);
+            break;
+          }
         }
       }
     }
@@ -262,11 +367,46 @@ async function main() {
     if (added < job.need) {
       console.warn(`    ⚠ only got ${added}/${job.need} for ${job.skill.id} d${job.difficulty}`);
     }
+
+    // If everything is benched, stop the entire run — better to exit and
+    // resume tomorrow than thrash for hours producing nothing.
+    const aliveCount = Object.entries(ctx.adminKeys)
+      .filter(([p, v]) => v && !unhealthySet().has(p as AIProviderId))
+      .length;
+    if (aliveCount === 0) {
+      console.warn(`\n⛔ All providers benched (rate-limited or failing). Stopping run early.`);
+      console.warn(`   Re-run the same command in a few hours and the script will resume.`);
+      break;
+    }
+
+    // Every 5 jobs, print provider health summary so the user can see
+    // which providers are doing the work.
+    if ((jobIdx + 1) % 5 === 0) {
+      const elapsed = Math.round((Date.now() - startedAt) / 60_000);
+      console.log(`\n  ── provider health (after ${jobIdx + 1} pairs, ${elapsed}min elapsed) ──`);
+      const sorted = Array.from(providerHealth.entries())
+        .sort((a, b) => b[1].totalWins - a[1].totalWins);
+      for (const [p, h] of sorted) {
+        const status = h.benchedUntil > Date.now()
+          ? `BENCHED until ${new Date(h.benchedUntil).toLocaleTimeString()}`
+          : 'active';
+        console.log(`     ${p.padEnd(12)} wins=${h.totalWins} fails=${h.totalFails}  [${status}]`);
+      }
+      console.log('');
+    }
   }
 
   const wallSeconds = Math.round((Date.now() - startedAt) / 1000);
   console.log(`\n✅ Done. Added ${totalAdded} questions in ${wallSeconds}s.`);
   if (totalRejected > 0) console.log(`   (${totalRejected} batches rejected by verification)`);
+
+  // Final provider health summary
+  console.log(`\n📊 Final provider scoreboard:`);
+  const sorted = Array.from(providerHealth.entries())
+    .sort((a, b) => b[1].totalWins - a[1].totalWins);
+  for (const [p, h] of sorted) {
+    console.log(`   ${p.padEnd(12)} wins=${h.totalWins.toString().padStart(4)}  fails=${h.totalFails.toString().padStart(4)}`);
+  }
 }
 
 main().catch((e) => {

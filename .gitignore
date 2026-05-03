@@ -52,3 +52,16 @@ supabase/.env
 # Backups
 *.backup
 *.bak
+
+# Local seed run logs and ad-hoc test scripts
+seed.log
+seed*.log
+scripts/_test*.mjs
+scripts/_test*.ts
+scripts/_verify-test.mjs
+
+# Audit output artifacts (regenerated each run)
+audit.md
+audit.ids.csv
+audit-*.md
+audit-*.ids.csv

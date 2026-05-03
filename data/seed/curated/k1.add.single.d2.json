@@ -1,0 +1,140 @@
+{
+  "skill_id": "k1.add.single",
+  "difficulty": 2,
+  "questions": [
+    {
+      "prompt": "$3 + 4 = ?$",
+      "answer": { "type": "numeric", "value": 7 },
+      "hints": [
+        { "level": 1, "text": "Adding means putting two amounts together to find the total." },
+        { "level": 2, "text": "Start at $3$ and count up $4$ more: $4, 5, 6, 7$." },
+        { "level": 3, "text": "After counting up four steps from $3$, you land on the number that comes just after $6$." }
+      ],
+      "solution": [
+        { "title": "Identify the operation", "detail": "The plus sign tells us to add the two numbers together." },
+        { "title": "Count up", "detail": "Begin at $3$ and count $4$ more: $4, 5, 6, 7$.", "state": "7" }
+      ]
+    },
+    {
+      "prompt": "Liam has 2 red apples and 5 green apples. How many apples does Liam have in all?",
+      "answer": { "type": "numeric", "value": 7 },
+      "hints": [
+        { "level": 1, "text": "When the question asks how many in all, you bring the groups together." },
+        { "level": 2, "text": "Combine the red and green apples: $2 + 5$." },
+        { "level": 3, "text": "$2$ apples plus $5$ more apples lands on the number right before $8$." }
+      ],
+      "solution": [
+        { "title": "Find the totals", "detail": "Liam has $2$ red apples and $5$ green apples." },
+        { "title": "Add the groups", "detail": "$2 + 5 = 7$ apples in all.", "state": "7" }
+      ]
+    },
+    {
+      "prompt": "What number, when added to four, gives nine?",
+      "answer": { "type": "numeric", "value": 5 },
+      "hints": [
+        { "level": 1, "text": "We need a missing part. Think: what added to four makes nine?" },
+        { "level": 2, "text": "If you start at four, how many more do you count to reach nine?" },
+        { "level": 3, "text": "Counting up from four — five, six, seven, eight, nine — is five steps." }
+      ],
+      "solution": [
+        { "title": "Read the question", "detail": "We need a number that adds to four to make nine." },
+        { "title": "Count up", "detail": "From four, count: five, six, seven, eight, nine — that is five steps.", "state": "5" }
+      ]
+    },
+    {
+      "prompt": "Maya has 6 crayons. Her friend gives her 2 more. How many crayons does Maya have now?",
+      "answer": { "type": "numeric", "value": 8 },
+      "hints": [
+        { "level": 1, "text": "Getting more means the total goes up — that is addition." },
+        { "level": 2, "text": "Add the crayons she had to the new ones: $6 + 2$." },
+        { "level": 3, "text": "Two more than $6$ is the number right after $7$." }
+      ],
+      "solution": [
+        { "title": "Identify the operation", "detail": "Receiving more crayons means we add." },
+        { "title": "Compute", "detail": "$6 + 2 = 8$ crayons.", "state": "8" }
+      ]
+    },
+    {
+      "prompt": "$1 + 8 = ?$",
+      "answer": { "type": "numeric", "value": 9 },
+      "hints": [
+        { "level": 1, "text": "Adding $1$ to a number means counting one more." },
+        { "level": 2, "text": "What is the next number after $8$?" },
+        { "level": 3, "text": "Right after $8$ is the answer — it is just below $10$." }
+      ],
+      "solution": [
+        { "title": "Add one", "detail": "Adding $1$ moves to the next number." },
+        { "title": "Compute", "detail": "$1 + 8 = 9$.", "state": "9" }
+      ]
+    },
+    {
+      "prompt": "Theo runs 4 laps in the morning and 3 laps in the afternoon. How many laps did Theo run that day?",
+      "answer": { "type": "numeric", "value": 7 },
+      "hints": [
+        { "level": 1, "text": "Running more laps means the total grows. Which operation does that?" },
+        { "level": 2, "text": "Add the morning laps to the afternoon laps: $4 + 3$." },
+        { "level": 3, "text": "Three more than $4$ is the number just before $8$." }
+      ],
+      "solution": [
+        { "title": "Combine the two parts of the day", "detail": "Morning laps and afternoon laps are added together." },
+        { "title": "Compute", "detail": "$4 + 3 = 7$ laps.", "state": "7" }
+      ]
+    },
+    {
+      "prompt": "Which number sentence makes a sum of $6$?",
+      "answer": {
+        "type": "multipleChoice",
+        "correctIndex": 2,
+        "options": ["$3 + 2$", "$5 + 2$", "$4 + 2$", "$1 + 4$"]
+      },
+      "hints": [
+        { "level": 1, "text": "Find each total, then look for the one that equals $6$." },
+        { "level": 2, "text": "Try each: $3 + 2 = 5$, $5 + 2 = 7$. Keep going." },
+        { "level": 3, "text": "$4 + 2$ makes $6$ because two more than $4$ is $6$." }
+      ],
+      "solution": [
+        { "title": "Try each option", "detail": "$3 + 2 = 5$, $5 + 2 = 7$, $4 + 2 = 6$, $1 + 4 = 5$." },
+        { "title": "Pick the match", "detail": "Only $4 + 2$ has a sum of $6$.", "state": "4 + 2" }
+      ]
+    },
+    {
+      "prompt": "$5 + 0 = ?$",
+      "answer": { "type": "numeric", "value": 5 },
+      "hints": [
+        { "level": 1, "text": "Adding zero is special — it does not change anything." },
+        { "level": 2, "text": "Zero means none, so the total stays the same as the other number." },
+        { "level": 3, "text": "If you start with $5$ and add nothing, you still have $5$." }
+      ],
+      "solution": [
+        { "title": "Zero rule", "detail": "Adding zero leaves a number unchanged." },
+        { "title": "Compute", "detail": "$5 + 0 = 5$.", "state": "5" }
+      ]
+    },
+    {
+      "prompt": "Noor saw 3 ducks at the pond. Then 6 more ducks waddled over. How many ducks were at the pond then?",
+      "answer": { "type": "numeric", "value": 9 },
+      "hints": [
+        { "level": 1, "text": "More ducks arriving means the group gets bigger — add." },
+        { "level": 2, "text": "Add the first ducks to the new arrivals: $3 + 6$." },
+        { "level": 3, "text": "Six more than $3$ is one less than $10$." }
+      ],
+      "solution": [
+        { "title": "Group the ducks", "detail": "Original ducks plus the new ones." },
+        { "title": "Compute", "detail": "$3 + 6 = 9$ ducks.", "state": "9" }
+      ]
+    },
+    {
+      "prompt": "$2 + 7 = ?$",
+      "answer": { "type": "numeric", "value": 9 },
+      "hints": [
+        { "level": 1, "text": "Two parts come together — add them." },
+        { "level": 2, "text": "Start at $7$ and count up $2$ more: $8, 9$." },
+        { "level": 3, "text": "Two more than $7$ is the number just before $10$." }
+      ],
+      "solution": [
+        { "title": "Choose a starting point", "detail": "Start at the larger number, $7$." },
+        { "title": "Count up", "detail": "$7$, then $8, 9$. Two steps takes you to $9$.", "state": "9" }
+      ]
+    }
+  ]
+}

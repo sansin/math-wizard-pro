@@ -116,7 +116,10 @@ async function tryOneModel(
   if (!res.ok) {
     const detail = await res.text().catch(() => '<unreadable>');
     const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-    console.error(`[openrouter] ${res.status} model=${model}: ${trimmed}`);
+    // 429s skip the loud log — router/seed script handles them.
+    if (res.status !== 429) {
+      console.error(`[openrouter] ${res.status} model=${model}: ${trimmed}`);
+    }
 
     if (res.status === 429) {
       // OpenRouter's free tier has an ACCOUNT-WIDE rate limit, not per-model:

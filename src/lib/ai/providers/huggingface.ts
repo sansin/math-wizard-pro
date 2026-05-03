@@ -54,8 +54,8 @@ export const huggingfaceProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[huggingface] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 429 || res.status === 503) throw err('rate-limit', `hf ${res.status}: ${trimmed}`);
+      console.error(`[huggingface] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `hf ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `hf ${res.status}: ${trimmed}`);
       throw err('bad-request', `hf ${res.status}: ${trimmed}`, false);

@@ -54,8 +54,8 @@ export const cerebrasProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[cerebras] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 429) throw err('rate-limit', `cerebras 429: ${trimmed}`);
+      console.error(`[cerebras] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `cerebras ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `cerebras ${res.status}: ${trimmed}`);
       throw err('bad-request', `cerebras ${res.status}: ${trimmed}`, false);

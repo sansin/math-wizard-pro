@@ -45,8 +45,8 @@ export const openaiProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[openai] ${res.status}: ${trimmed}`);
       if (res.status === 429) throw err('rate-limit', `openai 429: ${trimmed}`);
+      console.error(`[openai] ${res.status}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `openai ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `openai ${res.status}: ${trimmed}`);
       throw err('bad-request', `openai ${res.status}: ${trimmed}`, false);

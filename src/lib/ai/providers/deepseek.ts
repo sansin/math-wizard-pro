@@ -46,8 +46,8 @@ export const deepseekProvider: ProviderClient = {
     if (!res.ok) {
       const detail = await res.text().catch(() => '<unreadable>');
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
-      console.error(`[deepseek] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 429) throw err('rate-limit', `deepseek 429: ${trimmed}`);
+      console.error(`[deepseek] ${res.status} model=${MODEL}: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `deepseek ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `deepseek ${res.status}: ${trimmed}`);
       throw err('bad-request', `deepseek ${res.status}: ${trimmed}`, false);

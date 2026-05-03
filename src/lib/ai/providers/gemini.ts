@@ -57,12 +57,19 @@ export const geminiProvider: ProviderClient = {
 
     // Surface Google's actual error message for any non-2xx response — without
     // it the router silently flips through providers and you can't see why.
+    // Rate-limit (429) errors are EXPECTED at scale (free-tier quota burn);
+    // we throw a typed error and let the caller decide whether to log. Other
+    // statuses keep their loud console.error since they usually indicate a
+    // real config problem (auth, model name, etc.).
     if (!res.ok) {
       const detail = await readBody(res);
       // Truncate to avoid filling logs.
       const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
+      if (res.status === 429) {
+        // Quiet — quota errors are expected and the router falls through.
+        throw err('rate-limit', `gemini 429: ${trimmed}`);
+      }
       console.error(`[gemini] ${res.status} model=${model}: ${trimmed}`);
-      if (res.status === 429) throw err('rate-limit', `gemini 429: ${trimmed}`);
       if (res.status === 401 || res.status === 403) throw err('auth', `gemini ${res.status}: ${trimmed}`, false);
       if (res.status >= 500) throw err('server', `gemini ${res.status}: ${trimmed}`);
       throw err('bad-request', `gemini ${res.status}: ${trimmed}`, false);
