@@ -59,10 +59,24 @@ const ALL_PROVIDERS: AIProviderId[] = [
   'gemini', 'groq', 'cerebras', 'cloudflare', 'openrouter', 'mistral', 'huggingface',
   'claude', 'deepseek', 'openai',
 ];
-// Free-tier providers first (CF, Gemini, Groq, Cerebras, OpenRouter free
-// models, Mistral, HF), paid last (Claude, DeepSeek, OpenAI).
+// Free-tier providers first, paid last. Mistral sits at position 3 so
+// that the smaller-quota providers (Cloudflare's 10K Neurons/day,
+// Groq's daily TPD limit) get used FIRST while they have headroom.
+// Mistral has the most generous free tier and the highest observed
+// quality, so it's the reliable fallback once smaller-quota providers
+// hit their daily caps. This avoids wasting Mistral's quota when other
+// providers have free capacity available.
+//
+// Production data (from a 14K-question seed run):
+//   cloudflare  — 99.3% clean, free 10K Neurons/day  (use first, smallest cap)
+//   groq        — 94.9% clean, large daily TPD       (use second)
+//   mistral     — 99.5% clean, generous & fast       (workhorse fallback)
+//   gemini      — 100% clean (small sample), 1500 RPD
+//   cerebras    — 71.9% clean (LaTeX-in-JSON issues)
+//   openrouter  — account-wide free-day rate limit
+//   huggingface — small free quota
 const FREE_FIRST_ORDER: AIProviderId[] = [
-  'cloudflare', 'gemini', 'groq', 'cerebras', 'openrouter', 'mistral', 'huggingface',
+  'cloudflare', 'groq', 'mistral', 'gemini', 'cerebras', 'openrouter', 'huggingface',
   'claude', 'deepseek', 'openai',
 ];
 
@@ -92,13 +106,23 @@ const QUALITY_ORDER: AIProviderId[] = parseEnvOrder() ?? [
 
 /**
  * Speed-first ordering used for the cold-cache "give the user a question
- * NOW" path. Instant-tier providers (Cerebras, Groq) come first so the
+ * NOW" path. Instant-tier providers (Groq, Cerebras) come first so the
  * very first generation is as fast as possible. Quality-tier providers
  * fall later in the chain — fine for the 1-question fast path.
+ *
+ * Notes:
+ *  - Cerebras (Llama 3.1 8B) is demoted below the cleanly-formatting
+ *    providers because in production it consistently emits LaTeX commands
+ *    like \times, \nu, \rho with single backslashes inside JSON strings,
+ *    causing parse failures. Kept in the chain for speed but not first.
+ *  - Mistral (Mistral Small) sits at position 3: in our seed runs it was
+ *    the highest-quality provider (95.4% clean over ~13K questions) and
+ *    its free tier is generous (~1 RPS, 500K tokens/day) and quick. It
+ *    earns the slot ahead of Gemini/Cerebras for cold-cache generation.
  */
 const SPEED_FIRST_ORDER: AIProviderId[] = parseEnvOrder() ?? [
-  'cerebras', 'groq', 'cloudflare', 'gemini',
-  'openrouter', 'mistral', 'claude', 'huggingface', 'deepseek', 'openai',
+  'groq', 'cloudflare', 'mistral', 'gemini', 'cerebras',
+  'openrouter', 'claude', 'huggingface', 'deepseek', 'openai',
 ];
 
 export { SPEED_FIRST_ORDER };

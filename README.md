@@ -9,7 +9,7 @@
 |---|---|---|
 | AI keys | Bundled in the client (exposed) | Server-side only, BYOK with admin fallback |
 | Question correctness | Regex re-derivation, often wrong | AI generates **and** server-side `mathjs` verifies before serving |
-| AI providers | OpenAI only | 6-provider router: Gemini, Claude, OpenAI, DeepSeek, Groq, Cerebras |
+| AI providers | OpenAI only | 10-provider router: Gemini, Claude, OpenAI, DeepSeek, Groq, Cerebras, Cloudflare, OpenRouter, Mistral, HuggingFace |
 | Hints | Random tip from a 3-string list | 3-tier progressive ladder, never reveals the answer |
 | Solutions | None | Step-by-step worked solutions on every wrong answer |
 | Math rendering | Plain Unicode | KaTeX (LaTeX) throughout |
@@ -25,7 +25,7 @@
 - **Backend:** Next.js Route Handlers (Edge-compatible) — runs on Cloudflare Pages, Vercel, Netlify, anywhere
 - **Database:** Supabase Postgres with Row-Level Security
 - **Auth:** Supabase Auth (email/password + magic link ready)
-- **AI:** 6-provider router with BYOK + admin keys + per-user shared-key quota
+- **AI:** 10-provider router with BYOK + admin keys + per-user shared-key quota
 - **Tests:** Vitest (unit + integration), Playwright (e2e), CI on every PR
 
 ## Quick start
@@ -63,6 +63,120 @@ Open http://localhost:3000.
 
 Add them to `.env.local` as admin keys, **or** let users add their own via
 Settings → AI Providers (BYOK). The router prefers user keys over admin keys.
+
+## Building the question pool — seed → audit → ship
+
+Math Wizard Pro generates questions on demand, but for a smooth first
+experience we recommend pre-seeding a starter pool of ~5,000–30,000
+verified questions. Run these three commands and the pool fills itself.
+
+### 1. Generate questions (overnight on your Mac)
+
+The seed script reuses the production generator + verifier pipeline,
+so seeded questions are indistinguishable from live-traffic questions
+in quality and shape. Idempotent — re-runs only fill what's missing.
+
+```bash
+# 100 questions per (skill, difficulty) — 290 pairs × 100 = ~29,000 total
+caffeinate -i npm run seed:cache -- --target=100 2>&1 | tee seed.log
+
+# Or smaller starter pool: 20 per pair = ~5,800 total (1-2 hours)
+caffeinate -i npm run seed:cache -- --target=20 2>&1 | tee seed.log
+
+# Or just one skill / difficulty / grade band:
+caffeinate -i npm run seed:cache -- --skill=g23.add.regroup --target=50
+caffeinate -i npm run seed:cache -- --gradeBand=K-1 --target=100
+```
+
+`caffeinate -i` keeps your Mac awake during the run. Safe to interrupt
+with Ctrl+C and resume later — the script picks up exactly where it
+left off.
+
+The script automatically:
+- Rotates across all configured providers (best free-tier order:
+  `cloudflare → groq → mistral → gemini → cerebras → openrouter`)
+- Benches providers that hit their daily quota until tomorrow
+- Verifies every generated answer with `mathjs` before storing
+- Logs progress per `(skill, difficulty)` pair
+
+### 2. Audit + auto-fix the pool
+
+After seeding, validate quality and apply automatic repairs:
+
+```bash
+# Default: dedupe → audit → auto-fix → re-audit → mark audited
+npm run audit:fix
+```
+
+This runs the full ship-ready cycle:
+1. **Dedupe** — finds near-duplicate questions (same skill + difficulty
+   + normalized prompt) and keeps the best version
+2. **Audit** — only processes rows that haven't been audited yet
+   (incremental — fast on subsequent runs)
+3. **Smart auto-fix**:
+   - `prompt-bare-dollar-currency` → replaces `$12` with `USD 12`
+   - `prompt-latex-break` → repairs unbalanced `$` delimiters
+   - `hint-spoiler` → rewrites hints that leak the answer
+   - `solution-no-answer` → appends a closing "Final answer" step
+4. **Re-audit** — confirms the fixes stuck
+5. **Mark audited** — so the next run skips already-clean rows
+
+Other useful commands:
+
+```bash
+npm run audit:questions       # audit only, no writes (sample 5/pair)
+npm run audit:questions:all   # audit only, every row, no writes
+npm run audit:fix:dry         # preview what fix would do
+npm run audit:fix:full        # force re-audit everything
+```
+
+The script outputs `audit.md` (full markdown report) and `audit.ids.csv`
+(per-issue ID list for targeted SQL ops).
+
+#### One-time migration (first run only)
+
+The audit-state columns are added by a migration. Run it once via the
+**Supabase SQL Editor → New query**:
+
+```sql
+alter table public.questions
+  add column if not exists last_audited_at timestamptz,
+  add column if not exists last_audit_version smallint;
+
+create index if not exists questions_unaudited_idx
+  on public.questions (verified)
+  where last_audited_at is null;
+```
+
+If you skip this, the script falls back to full-audit-every-run mode
+and prints the same SQL block to copy-paste. Apply when you're ready.
+
+### 3. Ship-readiness check before launch
+
+```bash
+npm run ship:check   # runs audit:fix + prints a ✅ banner
+```
+
+Look at `audit.md`'s "Salvageability" section. Target:
+- ✅ **Usable as-is**: ≥ 99%
+- 🔁 **Must regenerate**: 0 (anything > 0 is `delete from questions where id in (...)` then re-seed)
+
+Once the pool is at ship quality, open it up to real users. The report
+button + `flagged_count >= 3` auto-demotion in `/api/questions/next`
+will surface and retire any bad questions that slipped through.
+
+### Repeatable loop after launch
+
+When you generate more questions later, the same one-liner handles
+everything — only newly-seeded rows get processed:
+
+```bash
+npm run seed:cache -- --target=100   # add more questions
+npm run audit:fix                    # audit + fix only the new ones
+```
+
+The audit gate (`last_audited_at IS NULL` filter) means subsequent
+runs are seconds, not minutes, even with a 30K-question pool.
 
 ## Deploy to Cloudflare Pages (free)
 

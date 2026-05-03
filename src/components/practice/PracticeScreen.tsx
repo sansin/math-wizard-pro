@@ -772,10 +772,15 @@ function friendlyError(j: {
         : '';
 
     // Failure-class hint.
-    const allRateLimited = failed.every((a) => a.error === 'rate-limit');
+    const allRateLimited = failed.length > 0 && failed.every((a) => a.error === 'rate-limit');
+    const hasParseFailure = failed.some(
+      (a) => a.error === 'parse-failed' || a.error === 'parse-truncated',
+    );
     const hasAuth = failed.some((a) => a.error === 'auth');
     const hasBadRequest = failed.some((a) => a.error === 'bad-request');
-    const errHint = allRateLimited
+    const errHint = hasParseFailure
+      ? " The AI's response wasn't valid JSON — usually means the answer got truncated. Try once more; if it keeps happening, the model may struggle with this skill's notation."
+      : allRateLimited
       ? ' All hit rate limits — wait a moment and retry, or add more providers.'
       : hasAuth
       ? ' Some keys look invalid (auth failed) — verify in Settings.'

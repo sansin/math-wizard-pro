@@ -20,7 +20,7 @@ import { route, type RouterContext, type RouterOptions } from './router';
 import { buildQuestionBatchPrompt } from './prompts';
 import { verify } from '@/lib/math/verifier';
 import { hash32 } from '@/lib/utils';
-import type { Question, Skill, AnswerKind, Hint, SolutionStep } from '@/types/core';
+import type { Question, Skill, AnswerKind, Hint, SolutionStep, AIProviderId } from '@/types/core';
 
 // ─── Schemas to validate AI output ─────────────────────────────────────
 // Note: AI providers' structured-output modes have inconsistent type fidelity.
@@ -98,19 +98,27 @@ function stripFences(s: string): string {
 }
 
 /**
- * Gemini sometimes emits LaTeX inside JSON strings without escaping
- * backslashes — e.g. `"text": "Subtract: $48 \frac{1}{2}$"` where `\f` is
- * an invalid JSON escape. Pre-process the raw text by escaping common
- * LaTeX backslash sequences that aren't already valid JSON escapes.
+ * AI providers (especially Cerebras Llama-3.1-8B and sometimes Gemini)
+ * emit LaTeX inside JSON strings without escaping backslashes. Examples
+ * we've seen in the wild:
  *
- * We're conservative: only convert backslash followed by a letter (LaTeX
- * command start) into double-backslash. This preserves real JSON escapes
- * like \n, \t, \", \\, \uXXXX.
+ *   "text": "Subtract: $48 \frac{1}{2}$"          ← \f valid JSON escape but breaks here
+ *   "prompt": "$3 \times 10^5$ kilometers"         ← \t parses as TAB
+ *   "text": "Add $\nu$ to the result"              ← \n parses as NEWLINE
+ *   "text": "$\rho = m/V$"                         ← \r parses as CR
+ *   "text": "Use $\sqrt{2}$"                       ← \s isn't a JSON escape
+ *
+ * The parser would either fail outright OR produce mangled content
+ * (TAB inside the middle of words). Our heuristic: if a `\X` sequence
+ * is followed by AT LEAST ONE more letter, it's a LaTeX command word
+ * and should be double-escaped — even when X happens to be one of
+ * \n \t \r \b \f. Single-letter escapes like a literal `\n` newline
+ * are preserved because they're not followed by another letter.
+ *
+ * Special case: `\\` (already-doubled backslash) is left as-is so we
+ * don't accidentally re-process correctly-escaped LaTeX.
  */
 function fixLatexEscapes(s: string): string {
-  // Replace \X where X is a letter (start of LaTeX command) with \\X.
-  // Skip valid JSON escapes: \n, \t, \r, \b, \f, \", \', \/, \\, \u.
-  const VALID_ESC = new Set(['n', 't', 'r', 'b', 'f', '"', "'", '/', '\\', 'u']);
   let out = '';
   let inString = false;
   for (let i = 0; i < s.length; i++) {
@@ -118,6 +126,27 @@ function fixLatexEscapes(s: string): string {
     if (c === '"' && (i === 0 || s[i - 1] !== '\\')) inString = !inString;
     if (inString && c === '\\' && i + 1 < s.length) {
       const next = s[i + 1]!;
+      // Skip already-escaped backslashes (`\\`).
+      if (next === '\\') {
+        out += '\\\\';
+        i++; // consume the second \
+        continue;
+      }
+      // Detect LaTeX commands: `\X` followed by another letter is almost
+      // always a multi-letter command word like \times, \frac, \nu, \rho,
+      // \alpha, \beta, \theta, \boxed, \underline, etc. Even when X is a
+      // valid JSON escape character (n/t/r/b/f), the multi-letter pattern
+      // means it's LaTeX, not a real JSON escape.
+      const after = s[i + 2] ?? '';
+      const looksLikeLatexCommand = /[A-Za-z]/.test(next) && /[A-Za-z]/.test(after);
+      if (looksLikeLatexCommand) {
+        out += '\\\\';
+        continue;
+      }
+      // Lone `\X` where X is a letter not in valid JSON escapes — fix.
+      // (\alpha, \sqrt — single letter, no follow-up letter; covered by
+      // the previous branch already, this is the safety net.)
+      const VALID_ESC = new Set(['n', 't', 'r', 'b', 'f', '"', "'", '/', 'u']);
       if (!VALID_ESC.has(next) && /[A-Za-z]/.test(next)) {
         out += '\\\\';
         continue;
@@ -193,8 +222,18 @@ export async function generateBatch(
   const seen = new Set<string>();
   let rejected = 0;
 
+  // Providers that emitted unparseable JSON in this call. We exclude them
+  // from subsequent retries inside this batch so we don't keep hammering
+  // the same misbehaving model (e.g., Cerebras Llama 3.1 8B has known
+  // LaTeX-in-JSON issues we've observed in production).
+  const parseFailureExclude = new Set<AIProviderId>(routerOptions?.excluded ?? []);
+
   for (let retry = 0; retry <= MAX_RETRIES && accepted.length < count; retry++) {
     const need = count - accepted.length;
+    // Merge the caller's exclusions with our running parse-failure set.
+    const callerExcluded = routerOptions?.excluded ?? new Set<AIProviderId>();
+    const mergedExcluded = new Set<AIProviderId>([...callerExcluded, ...parseFailureExclude]);
+
     const result = await route(
       {
         task: 'generate-batch',
@@ -202,12 +241,15 @@ export async function generateBatch(
         user: built.user,
         jsonSchema: built.schema as object,
         temperature: 0.85,
-        // Each question costs ~600-900 tokens with hints + solution + LaTeX.
-        // Cap at 8K, scale generously.
-        maxTokens: Math.min(8000, 1200 + need * 800),
+        // Each question costs ~600-1500 tokens with hints + solution + LaTeX.
+        // Verbose skills (scientific notation, calculus, geometry proofs)
+        // can produce questions toward the upper end. Bumped headroom
+        // significantly — 2000 base + 1500 per question — to avoid
+        // mid-JSON truncation that fails BatchSchema.parse.
+        maxTokens: Math.min(12000, 2000 + need * 1500),
       },
       ctx,
-      routerOptions,
+      { ...routerOptions, excluded: mergedExcluded },
     );
     attempts = attempts.concat(result.attempts);
 
@@ -225,8 +267,33 @@ export async function generateBatch(
       parsed = BatchSchema.parse(json);
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
-      console.warn(`[generator] BatchSchema.parse failed: ${detail.slice(0, 400)}`);
+      // Common cause: response was truncated mid-JSON because the AI hit its
+      // max-tokens limit. The detail "Unexpected end of JSON" or "Bad Unicode
+      // escape" both fingerprint as truncation.
+      const isTruncation = /Unexpected end|Bad Unicode|Unterminated string/i.test(detail);
+      const errorClass = isTruncation ? 'parse-truncated' : 'parse-failed';
+      console.warn(`[generator] ${errorClass}: ${detail.slice(0, 400)}`);
       console.warn(`[generator] raw AI content: ${stripFences(result.response.content).slice(0, 600)}`);
+      // The router-level attempt was already pushed (HTTP succeeded).
+      // Retroactively flip the most recent ok=true entry to ok=false with a
+      // structured error so the API route can render a useful message instead
+      // of "Tried 0 of N — all rate-limited".
+      const lastOk = attempts.findLastIndex?.((a) => a.ok) ?? attempts
+        .map((a, i) => (a.ok ? i : -1))
+        .reverse()
+        .find((i) => i >= 0) ?? -1;
+      if (lastOk >= 0) {
+        attempts[lastOk] = {
+          ...attempts[lastOk]!,
+          ok: false,
+          error: errorClass,
+        };
+      }
+      // Bench this provider for the rest of THIS call so we don't retry
+      // into the same bad output. Caller-level health tracking (e.g.
+      // seed-cache.ts's persistent bench) sees the failure too via the
+      // attempts array we return.
+      parseFailureExclude.add(result.response.provider as AIProviderId);
       rejected += need;
       continue;
     }
