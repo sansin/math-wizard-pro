@@ -65,32 +65,65 @@ export default async function Landing() {
 
   return (
     <div className="min-h-screen">
-      {/* Top bar */}
-      <header className="max-w-7xl mx-auto flex items-center justify-between px-4 sm:px-6 h-16">
-        <Link href="/" className="flex items-center gap-2">
-          <Wizard size={32} animated={false} />
-          <span className="font-display font-bold text-lg">Math Wizard <span className="text-wizard-500">Pro</span></span>
-        </Link>
-        <div className="flex items-center gap-2">
-          <Link href="/login" className="hidden sm:block">
-            <Button variant="ghost" size="sm">Sign in</Button>
-          </Link>
-          <Link href="/login?signup=1">
-            <Button variant="primary" size="sm">Get started</Button>
-          </Link>
+      {/* Hero — Adventure Quest deep-night palette */}
+      <section
+        className="relative overflow-hidden text-white"
+        style={{
+          background:
+            'radial-gradient(ellipse at 30% 0%, #1F2872 0%, #0A0E2C 55%, #06081B 100%)',
+        }}
+      >
+        {/* Decorative star field */}
+        <div className="absolute inset-0 pointer-events-none opacity-60" aria-hidden>
+          <div className="absolute top-10 left-[15%] h-1 w-1 rounded-full bg-white/80 animate-sparkle" />
+          <div className="absolute top-24 left-[80%] h-1.5 w-1.5 rounded-full bg-white/70 animate-sparkle [animation-delay:0.6s]" />
+          <div className="absolute top-40 left-[25%] h-1 w-1 rounded-full bg-amber-200/80 animate-sparkle [animation-delay:0.3s]" />
+          <div className="absolute top-12 left-[55%] h-1 w-1 rounded-full bg-white/60 animate-sparkle [animation-delay:0.9s]" />
+          <div className="absolute top-60 left-[70%] h-1 w-1 rounded-full bg-amber-100/70 animate-sparkle [animation-delay:1.2s]" />
+          <div className="absolute top-72 left-[18%] h-1.5 w-1.5 rounded-full bg-white/50 animate-sparkle [animation-delay:1.6s]" />
+          <div className="absolute top-32 left-[42%] h-1 w-1 rounded-full bg-violet-200/70 animate-sparkle [animation-delay:0.4s]" />
+          <div className="absolute top-52 left-[88%] h-1 w-1 rounded-full bg-white/60 animate-sparkle [animation-delay:0.8s]" />
         </div>
-      </header>
 
-      {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-20 text-center">
+        {/* Top bar */}
+        <header className="relative max-w-7xl mx-auto flex items-center justify-between px-4 sm:px-6 h-16">
+          <Link href="/" className="flex items-center gap-2">
+            <Wizard size={32} animated={false} />
+            <span className="font-display font-bold text-lg text-white">
+              Math Wizard <span className="text-amber-300">Pro</span>
+            </span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/login" className="hidden sm:block">
+              <button className="text-sm font-semibold text-white/80 hover:text-white px-3 py-2 rounded-lg hover:bg-white/10 transition-colors">
+                Sign in
+              </button>
+            </Link>
+            <Link href="/login?signup=1">
+              <button
+                className="text-sm font-bold px-4 py-2 rounded-lg shadow-lg transition-all hover:scale-105"
+                style={{ background: 'linear-gradient(135deg, #FAB200, #D69200)', color: '#2F2000' }}
+              >
+                Get started
+              </button>
+            </Link>
+          </div>
+        </header>
+
+        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-24 text-center">
           <div className="flex justify-center mb-6">
             <Wizard size={140} mood="happy" />
           </div>
-          <h1 className="font-display text-4xl sm:text-6xl font-bold tracking-tight text-ink-900">
-            Practice math like it&apos;s a quest.
+          <h1 className="font-display text-4xl sm:text-6xl font-bold tracking-tight">
+            Practice math like it&apos;s a{' '}
+            <span
+              className="bg-clip-text text-transparent"
+              style={{ backgroundImage: 'linear-gradient(135deg, #FFCB42, #FAB200)' }}
+            >
+              quest.
+            </span>
           </h1>
-          <p className="mt-5 text-lg sm:text-xl text-ink-600 max-w-2xl mx-auto">
+          <p className="mt-5 text-lg sm:text-xl text-white/80 max-w-2xl mx-auto">
             AI-powered adaptive practice for K-12. Smart hints that don&apos;t spoil the answer.
             Step-by-step solutions when you need them. Built for kids, useful for parents.
           </p>
@@ -99,13 +132,57 @@ export default async function Landing() {
               <Button size="xl">🚀 Start free</Button>
             </Link>
             <Link href="/migrate">
-              <Button size="xl" variant="secondary">Import from Classic →</Button>
+              <Button
+                size="xl"
+                variant="secondary"
+                className="!bg-white/10 !text-white !border-white/30 hover:!bg-white/20"
+              >
+                Import from Classic →
+              </Button>
             </Link>
           </div>
-          <p className="mt-3 text-xs text-ink-500">
+          <p className="mt-3 text-xs text-white/60">
             Already have an account?{' '}
-            <Link href="/login" className="font-semibold text-wizard-600 hover:text-wizard-700">Sign in</Link>
+            <Link href="/login" className="font-semibold text-amber-300 hover:text-amber-200">
+              Sign in
+            </Link>
           </p>
+        </div>
+      </section>
+
+      {/* Module identity strip — shows the jewel-tone palette in action */}
+      <section className="border-y border-ink-100 bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+          <p className="text-center text-sm font-semibold text-ink-500 mb-4 tracking-wider uppercase">
+            Every module has its own color identity
+          </p>
+          <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
+            {[
+              { icon: '➕', name: 'Addition',       bg: '#1746C2' },
+              { icon: '➖', name: 'Subtraction',    bg: '#D11B3F' },
+              { icon: '✖️', name: 'Multiplication', bg: '#0E8B55' },
+              { icon: '➗', name: 'Division',       bg: '#5F18D8' },
+              { icon: '🥧', name: 'Fractions',      bg: '#BD7A00' },
+              { icon: '💯', name: 'Decimals',       bg: '#0C8482' },
+              { icon: '🔤', name: 'Algebra',        bg: '#570FBE' },
+              { icon: '📐', name: 'Geometry',       bg: '#D8430E' },
+              { icon: '📊', name: 'Statistics',     bg: '#D31D52' },
+            ].map((m) => (
+              <div
+                key={m.name}
+                className="flex items-center gap-2 rounded-full pl-1.5 pr-3 py-1 text-xs font-semibold text-white shadow-sm"
+                style={{ background: m.bg }}
+              >
+                <span
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/20"
+                  aria-hidden
+                >
+                  {m.icon}
+                </span>
+                <span>{m.name}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -148,13 +225,32 @@ export default async function Landing() {
         </ol>
       </section>
 
-      {/* CTA */}
+      {/* CTA — deep-night with gold accent */}
       <section className="max-w-4xl mx-auto px-4 sm:px-6 pb-20">
-        <div className="rounded-3xl bg-gradient-to-br from-wizard-500 to-wizard-700 text-white p-8 sm:p-12 text-center shadow-wizard-lg">
-          <h3 className="font-display text-2xl sm:text-3xl font-bold mb-2">Ready to begin?</h3>
-          <p className="text-wizard-100 mb-6">No credit card. No ads. Just practice.</p>
-          <Link href="/login?signup=1">
-            <Button variant="secondary" size="xl">🚀 Get started free</Button>
+        <div
+          className="relative overflow-hidden rounded-3xl text-white p-8 sm:p-12 text-center shadow-wizard-lg"
+          style={{
+            background:
+              'radial-gradient(ellipse at top right, #5F18D8 0%, #1F2872 45%, #0A0E2C 100%)',
+          }}
+        >
+          <div className="absolute inset-0 pointer-events-none opacity-50" aria-hidden>
+            <div className="absolute top-6 left-[20%] h-1 w-1 rounded-full bg-amber-200 animate-sparkle" />
+            <div className="absolute top-12 left-[70%] h-1.5 w-1.5 rounded-full bg-white animate-sparkle [animation-delay:0.5s]" />
+            <div className="absolute bottom-6 left-[50%] h-1 w-1 rounded-full bg-amber-100 animate-sparkle [animation-delay:1s]" />
+          </div>
+          <h3 className="relative font-display text-2xl sm:text-3xl font-bold mb-2">
+            Ready to begin your quest?
+          </h3>
+          <p className="relative text-white/80 mb-6">No credit card. No ads. Just practice.</p>
+          <Link href="/login?signup=1" className="relative inline-block">
+            <Button
+              size="xl"
+              className="!shadow-lg"
+              style={{ background: 'linear-gradient(135deg, #FAB200, #D69200)', color: '#2F2000' }}
+            >
+              🚀 Get started free
+            </Button>
           </Link>
         </div>
       </section>

@@ -18,7 +18,9 @@
     "supabase:reset": "supabase db reset",
     "supabase:gen-types": "supabase gen types typescript --local > src/types/supabase.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,md}\"",
-    "validate": "npm run typecheck && npm run lint && npm run test"
+    "validate": "npm run typecheck && npm run lint && npm run test",
+    "seed:cache": "tsx scripts/seed-cache.ts",
+    "seed:cache:dry": "tsx scripts/seed-cache.ts --dryRun"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",
@@ -46,6 +48,8 @@
     "@vitejs/plugin-react": "^5.0.4",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
+    "tsx": "^4.19.2",
+    "dotenv": "^16.4.5",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.18.0",
     "eslint-config-next": "^16.2.4",

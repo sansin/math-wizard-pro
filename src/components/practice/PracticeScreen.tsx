@@ -9,6 +9,7 @@ import { AnswerInput } from '@/components/math/AnswerInput';
 import { HintLadder } from './HintLadder';
 import { SolutionPanel } from './SolutionPanel';
 import { ProviderBadge } from './ProviderBadge';
+import { ReportButton } from './ReportButton';
 import { SessionEndSummary } from './SessionEndSummary';
 import { cn } from '@/lib/utils';
 import { calculateXP } from '@/lib/mastery/xp';
@@ -642,6 +643,13 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
                 <SolutionPanel steps={question.solution} />
               </div>
             )}
+          </div>
+
+          {/* Subtle report link — pinned to the bottom-right of the card.
+              When users click "report" enough times, the question gets
+              demoted in the cache lookup. */}
+          <div className="mt-4 pt-3 border-t border-ink-100 flex justify-end">
+            <ReportButton questionId={question.id} />
           </div>
         </CardBody>
       </Card>

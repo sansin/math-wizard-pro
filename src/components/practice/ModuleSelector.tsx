@@ -37,6 +37,54 @@ const MODULE_ICONS: Record<string, string> = {
 };
 
 /**
+ * Adventure-Quest jewel palette per module — gives each module a
+ * recognizable color identity. Returns the hex pair used to tint the
+ * module header (icon backdrop + accent bar). Defaults to wizard purple.
+ */
+interface ModuleTheme {
+  /** Solid background for the icon chip (saturated). */
+  iconBg: string;
+  /** Text color for the icon chip — usually white. */
+  iconFg: string;
+  /** Soft tint for the header gradient. */
+  tint: string;
+  /** Darker shade for the accent bar / left border. */
+  bar: string;
+}
+
+const MODULE_THEMES: Record<string, ModuleTheme> = {
+  'Number Sense':   { iconBg: '#1746C2', iconFg: '#fff', tint: '#EAF1FF', bar: '#11369A' }, // sapphire
+  'Counting':       { iconBg: '#1746C2', iconFg: '#fff', tint: '#EAF1FF', bar: '#11369A' },
+  'Addition':       { iconBg: '#1746C2', iconFg: '#fff', tint: '#EAF1FF', bar: '#11369A' }, // sapphire
+  'Subtraction':    { iconBg: '#D11B3F', iconFg: '#fff', tint: '#FFEFF1', bar: '#A81131' }, // ruby
+  'Multiplication': { iconBg: '#0E8B55', iconFg: '#fff', tint: '#E6FBF1', bar: '#0A6D43' }, // emerald
+  'Division':       { iconBg: '#5F18D8', iconFg: '#fff', tint: '#F5EDFF', bar: '#4A11AB' }, // amethyst
+  'Arithmetic':     { iconBg: '#1746C2', iconFg: '#fff', tint: '#EAF1FF', bar: '#11369A' },
+  'Number Theory':  { iconBg: '#0E8B55', iconFg: '#fff', tint: '#E6FBF1', bar: '#0A6D43' },
+  'Fractions':      { iconBg: '#BD7A00', iconFg: '#fff', tint: '#FFF6E0', bar: '#956000' }, // topaz
+  'Decimals':       { iconBg: '#0C8482', iconFg: '#fff', tint: '#E2FAFA', bar: '#086766' }, // aqua
+  'Ratios':         { iconBg: '#D31D52', iconFg: '#fff', tint: '#FFEDF2', bar: '#A41441' }, // rose
+  'Pre-Algebra':    { iconBg: '#570FBE', iconFg: '#fff', tint: '#F2E8FF', bar: '#430893' }, // violet2
+  'Algebra':        { iconBg: '#570FBE', iconFg: '#fff', tint: '#F2E8FF', bar: '#430893' },
+  'Functions':      { iconBg: '#0C8482', iconFg: '#fff', tint: '#E2FAFA', bar: '#086766' },
+  'Geometry':       { iconBg: '#D8430E', iconFg: '#fff', tint: '#FFF1EA', bar: '#AA340A' }, // coral
+  'Trigonometry':   { iconBg: '#D8430E', iconFg: '#fff', tint: '#FFF1EA', bar: '#AA340A' },
+  'Calculus':       { iconBg: '#5F18D8', iconFg: '#fff', tint: '#F5EDFF', bar: '#4A11AB' },
+  'Statistics':     { iconBg: '#D31D52', iconFg: '#fff', tint: '#FFEDF2', bar: '#A41441' },
+  'Probability':    { iconBg: '#D31D52', iconFg: '#fff', tint: '#FFEDF2', bar: '#A41441' },
+  'Exponents':      { iconBg: '#D69200', iconFg: '#fff', tint: '#FFFAEB', bar: '#A77000' }, // gold
+  'Measurement':    { iconBg: '#0C8482', iconFg: '#fff', tint: '#E2FAFA', bar: '#086766' },
+  'Logic':          { iconBg: '#570FBE', iconFg: '#fff', tint: '#F2E8FF', bar: '#430893' },
+};
+
+const DEFAULT_MODULE_THEME: ModuleTheme = {
+  iconBg: '#7C4DFF',
+  iconFg: '#fff',
+  tint: '#F4F0FF',
+  bar: '#5524BB',
+};
+
+/**
  * Build the inline `background` style for a skill row, where the row's
  * background fills left-to-right by mastery (0..1). Color shifts:
  *   - low mastery (0-30%):  pale ember (warm red)
@@ -232,6 +280,7 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
                 const moduleSelectedCount = moduleSkills.filter((s) => selected.has(s.id)).length;
                 const allSelected = moduleSelectedCount === moduleSkills.length;
                 const moduleIcon = MODULE_ICONS[moduleName] ?? '📘';
+                const theme = MODULE_THEMES[moduleName] ?? DEFAULT_MODULE_THEME;
                 const toggleModule = () => {
                   setSelected((prev) => {
                     const next = new Set(prev);
@@ -246,10 +295,22 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
 
                 return (
                   <section key={moduleName} aria-labelledby={`mod-${moduleName}`}>
-                    {/* Prominent module header — Option A */}
-                    <div className="flex items-end justify-between gap-3 border-b border-ink-100 pb-2 mb-3">
+                    {/* Prominent module header with jewel-tone identity */}
+                    <div
+                      className="flex items-end justify-between gap-3 pb-3 mb-3 rounded-xl px-3 pt-2.5 border-l-4"
+                      style={{
+                        background: `linear-gradient(90deg, ${theme.tint} 0%, transparent 60%)`,
+                        borderLeftColor: theme.bar,
+                      }}
+                    >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-2xl shrink-0" aria-hidden>{moduleIcon}</span>
+                        <span
+                          className="flex h-10 w-10 items-center justify-center rounded-xl text-xl shrink-0 shadow-sm"
+                          style={{ background: theme.iconBg, color: theme.iconFg }}
+                          aria-hidden
+                        >
+                          {moduleIcon}
+                        </span>
                         <div className="min-w-0">
                           <h3
                             id={`mod-${moduleName}`}
@@ -260,7 +321,7 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
                           <div className="text-xs text-ink-500">
                             {moduleSkills.length} skill{moduleSkills.length === 1 ? '' : 's'}
                             {moduleSelectedCount > 0 && (
-                              <> · <span className="font-semibold text-wizard-700">{moduleSelectedCount} selected</span></>
+                              <> · <span className="font-semibold" style={{ color: theme.bar }}>{moduleSelectedCount} selected</span></>
                             )}
                           </div>
                         </div>
@@ -269,11 +330,13 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
                         type="button"
                         onClick={toggleModule}
                         className={cn(
-                          'shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors',
-                          allSelected
-                            ? 'border-wizard-300 text-wizard-700 bg-wizard-50 hover:bg-wizard-100'
-                            : 'border-ink-200 text-ink-700 hover:border-wizard-300 hover:text-wizard-700',
+                          'shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg border-2 transition-colors bg-white/70',
                         )}
+                        style={
+                          allSelected
+                            ? { borderColor: theme.bar, color: theme.bar, background: theme.tint }
+                            : { borderColor: '#E5E7EB', color: '#374151' }
+                        }
                       >
                         {allSelected ? '☑ All selected' : 'Select all'}
                       </button>
