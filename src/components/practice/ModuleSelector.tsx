@@ -407,7 +407,7 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
                               </div>
                               {m && m.attempts > 0 && (
                                 <div className="text-2xs text-ink-500 mt-0.5">
-                                  {masteryLabel(m.mastery)} · {Math.round(m.mastery * 100)}%
+                                  {masteryLabel(m.mastery, m.attempts)} · {Math.round(m.mastery * 100)}%
                                 </div>
                               )}
                             </div>

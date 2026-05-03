@@ -17,7 +17,16 @@ export const runtime = 'nodejs';
 
 const Body = z.object({
   questionId: z.string().uuid(),
-  reason: z.enum(['wrong-answer', 'confusing', 'too-hard', 'too-easy', 'other']),
+  // Keep this enum in sync with the REASONS list rendered by
+  // ReportButton.tsx — both are user-facing controls.
+  reason: z.enum([
+    'wrong-answer',
+    'confusing',
+    'too-hard',
+    'too-easy',
+    'duplicate',
+    'other',
+  ]),
   comment: z.string().max(500).optional(),
 });
 

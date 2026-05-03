@@ -91,6 +91,12 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
   const [skillNamesById, setSkillNamesById] = React.useState<Record<string, string>>({});
   const [recentSkillIds, setRecentSkillIds] = React.useState<string[]>([]);
   const [recentHashes, setRecentHashes] = React.useState<string[]>([]);
+  // Mirror of recentHashes in a ref so prefetchNext() — which fires
+  // SYNCHRONOUSLY right after applyQuestion() — can read the freshly-
+  // appended hash without waiting for React to commit the state update.
+  // Without this, the immediate prefetch would send a stale avoid list
+  // and the server could legitimately return the question we just showed.
+  const recentHashesRef = React.useRef<string[]>([]);
   const [lastDifficulty, setLastDifficulty] = React.useState<1 | 2 | 3 | 4 | 5 | undefined>();
   const [lastWasCorrect, setLastWasCorrect] = React.useState<boolean | undefined>();
   const [questionStart, setQuestionStart] = React.useState(0);
@@ -151,13 +157,31 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode, gradeBand, skillIds }),
         });
-        const data = await res.json();
-        if (!cancelled && data.session?.id) {
-          setSessionId(data.session.id);
-          await loadNext(data.session.id);
+        // The previous version only proceeded when `data.session?.id`
+        // was set, but did NOT surface any error otherwise — leaving
+        // the user staring at "Brewing a question…" indefinitely with
+        // no signal that anything went wrong. Treat any non-OK
+        // response (or a missing session.id) as a hard error so the
+        // UI can render something actionable.
+        const data = await res.json().catch(() => ({} as Record<string, unknown>));
+        if (cancelled) return;
+        if (!res.ok || !((data as { session?: { id?: string } }).session?.id)) {
+          const msg =
+            (data as { detail?: string; error?: string }).detail ||
+            (data as { detail?: string; error?: string }).error ||
+            `Couldn't start a practice session (HTTP ${res.status}).`;
+          console.error('[practice] /api/sessions failed:', msg, data);
+          setError(msg);
+          setLoading(false);
+          return;
         }
+        setSessionId((data as { session: { id: string } }).session.id);
+        await loadNext((data as { session: { id: string } }).session.id);
       } catch (e) {
-        if (!cancelled) setError((e as Error).message);
+        if (!cancelled) {
+          setError((e as Error).message);
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -191,7 +215,14 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
     });
     setQuestionStart(Date.now());
     setRecentSkillIds((s) => [...s.slice(-9), data.question.skillId]);
-    setRecentHashes((h) => [...h.slice(-49), data.question.promptHash]);
+    // Update both the ref (synchronously visible to prefetchNext) and the
+    // state (visible to the next render). Keeping them in sync — the ref
+    // is the read source for code that fires before React commits.
+    recentHashesRef.current = [
+      ...recentHashesRef.current.slice(-49),
+      data.question.promptHash,
+    ];
+    setRecentHashes(recentHashesRef.current);
   }
 
   async function loadNext(sId: string | null = sessionId) {
@@ -211,8 +242,9 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
       setHintsUsed(0);
       setAttempt({ status: 'idle', xpEarned: 0, expectedDisplay: '', attempts: 0 });
       applyQuestion(pre.data);
-      // Kick off prefetch for the question AFTER this one.
-      void prefetchNext();
+      // Pass the just-applied question explicitly — React state hasn't
+      // committed yet, so reading from `question` would give the wrong one.
+      void prefetchNext(pre.data.question);
       return;
     }
     if (pre) {
@@ -270,8 +302,9 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
         `diff=${data.question.difficulty} source=${data.source}`,
       );
       applyQuestion(data);
-      // Kick off background prefetch for the next question.
-      void prefetchNext();
+      // Pass the just-applied question explicitly — React state hasn't
+      // committed yet, so reading from `question` would give the wrong one.
+      void prefetchNext(data.question);
     } catch (e) {
       // Aborted requests are expected during End Session; don't surface as error.
       if ((e as Error).name === 'AbortError') {
@@ -293,16 +326,22 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
    * it wrong, the prefetch is discarded in loadNext().
    *
    * The prefetch never updates UI state — it only fills prefetchedRef.
+   *
+   * Reads avoid list from `recentHashesRef.current` rather than the
+   * `recentHashes` state. This matters because `prefetchNext` is fired
+   * SYNCHRONOUSLY right after `applyQuestion`, which only QUEUES the
+   * state update — the state value seen via closure is one question
+   * behind. The ref always has the latest value (see applyQuestion).
    */
-  async function prefetchNext() {
+  async function prefetchNext(currentQuestion: Question | null = question) {
+    if (!currentQuestion) return;
     // Capture assumptions: predict the user will get the CURRENT question
     // right (best case), bump difficulty by 1.
     const assumedCorrect = true;
-    const assumedDifficulty = question?.difficulty;
-    const avoidSnapshot = [
-      ...recentHashes.slice(-29),
-      question?.promptHash, // include the current question's hash too
-    ].filter(Boolean) as string[];
+    const assumedDifficulty = currentQuestion.difficulty;
+    // Pull from the ref — guaranteed to include the current question's
+    // hash because applyQuestion writes the ref synchronously.
+    const avoidSnapshot = recentHashesRef.current.slice(-30);
 
     if (prefetchAbortRef.current) prefetchAbortRef.current.abort();
     const controller = new AbortController();
@@ -316,7 +355,7 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
           skillIds,
           lastDifficulty: assumedDifficulty,
           lastWasCorrect: assumedCorrect,
-          recentSkillIds: [...recentSkillIds.slice(-4), question?.skillId].filter(Boolean),
+          recentSkillIds: [...recentSkillIds.slice(-4), currentQuestion.skillId].filter(Boolean),
           avoidPromptHashes: avoidSnapshot,
         }),
         signal: controller.signal,

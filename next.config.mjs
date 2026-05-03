@@ -7,6 +7,19 @@ const nextConfig = {
   images: {
     unoptimized: process.env.STATIC_EXPORT === 'true',
   },
+  // Allow the dev HMR WebSocket from LAN addresses so we can test the
+  // app from a phone or another Mac on the same network without the
+  // browser silently running stale code. Localhost is allowed by
+  // default; we explicitly add the common private-network ranges and
+  // the *.local mDNS names that Macs publish.
+  allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
+    '192.168.0.0/16',
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    '*.local',
+  ],
   experimental: {
     optimizePackageImports: ['recharts', 'framer-motion', 'lucide-react'],
   },

@@ -12,11 +12,14 @@ import { Button } from '@/components/ui/Button';
  * stop seeing it.
  */
 
+// Keep this list in sync with the `reason` enum in
+// /api/questions/report/route.ts — both are user-facing controls.
 const REASONS: Array<{ value: string; label: string }> = [
   { value: 'wrong-answer', label: '❌ The answer is wrong' },
   { value: 'confusing', label: '🤔 Question is unclear / confusing' },
   { value: 'too-hard', label: '😰 Too hard for this level' },
   { value: 'too-easy', label: '😴 Too easy for this level' },
+  { value: 'duplicate', label: '🔁 Duplicate / repeat question' },
   { value: 'other', label: '✏️ Something else' },
 ];
 

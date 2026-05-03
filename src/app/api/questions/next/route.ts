@@ -135,13 +135,23 @@ export async function POST(req: Request) {
       // 3 reports = enough signal to retire it from the active pool.
       .lt('flagged_count', 3)
       .order('served_count', { ascending: true })
-      .limit(60),
+      // 300 = covers up to ~3 difficulties × 100 questions each. Keeps
+      // the response small enough to be fast (one round-trip, ≈300 rows
+      // of ≈2 KB each = ~0.6 MB) while ensuring dedup never runs out
+      // of candidates while there are still unseen questions in the pool.
+      .limit(300),
     sb
       .from('attempts')
       .select('question_id')
       .eq('user_id', userId)
+      // Per-skill filter: dedup is "don't show this user the same
+      // question on this skill again". Without this filter, a user
+      // who has answered 200+ questions on OTHER skills can have
+      // their per-skill history fall out of the .limit() window,
+      // and the server happily re-serves a question they've seen.
+      .eq('skill_id', pick.skill.id)
       .order('attempted_at', { ascending: false })
-      .limit(200),
+      .limit(500),
   ]);
 
   const avoidHashes = new Set(body.avoidPromptHashes);

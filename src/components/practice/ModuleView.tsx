@@ -323,7 +323,7 @@ function SkillRow({
   // it once in src/lib/mastery/display.ts.
   const masteryPct = masteryPercent(masteryInfo);
   const label = masteryInfo && masteryInfo.attempts > 0
-    ? masteryLabel(masteryInfo.mastery)
+    ? masteryLabel(masteryInfo.mastery, masteryInfo.attempts)
     : 'Not started';
   const fillStyle = masteryBackgroundStyle(masteryInfo, selected);
 
@@ -332,10 +332,26 @@ function SkillRow({
     return s ? s.name : id;
   });
 
+  // We render the row as a `<div role="button">` rather than a `<button>`
+  // because the prerequisite-warning Tooltip's trigger is itself a
+  // `<button>`. HTML doesn't allow nested buttons — the parser closes
+  // the outer one when it encounters the inner, breaking React hydration
+  // and producing the "validateDOMNesting" warning. Using a div with
+  // role+tabIndex+keyboard handlers keeps the row keyboard-accessible
+  // without the nesting problem.
+  function handleKey(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  }
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={handleKey}
       aria-pressed={selected}
       // Compose the per-row mastery fill background with the selection
       // border. Selection still reads via border color even when the
@@ -345,7 +361,8 @@ function SkillRow({
         ...(selected ? { borderColor: accent } : {}),
       }}
       className={cn(
-        'relative flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all overflow-hidden',
+        'relative flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all overflow-hidden cursor-pointer select-none',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wizard-400',
         selected
           ? 'border-2'
           : 'border-ink-100 hover:border-ink-200',
@@ -398,7 +415,7 @@ function SkillRow({
         </Tooltip>
       )}
       <DifficultyDots level={skill.intrinsicDifficulty} />
-    </button>
+    </div>
   );
 }
 
