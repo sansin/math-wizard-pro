@@ -47,9 +47,20 @@ describe('areEquivalent', () => {
       expect(areEquivalent('y - 6x = 0', '6x - y = 0')).toBe(true);
     });
 
-    it('treats algebraically equivalent equations as equivalent', () => {
-      expect(areEquivalent('2x + 4 = 10', 'x + 2 = 5')).toBe(true);
-      expect(areEquivalent('2y = 6x', 'y = 3x')).toBe(true);
+    it('treats commutatively-rearranged equations as equivalent', () => {
+      // mathjs simplify normalizes term ordering, so these collapse to the
+      // same canonical form even though the surface ordering differs.
+      expect(areEquivalent('2x + 4 = 10', '4 + 2x = 10')).toBe(true);
+      expect(areEquivalent('y = 6x + 3', 'y = 3 + 6x')).toBe(true);
+    });
+
+    it('does NOT treat scaled equations as equivalent', () => {
+      // Symbolically distinct: getting from one to the other requires
+      // multiplying both sides by a constant. Same solution set, but
+      // areEquivalent intentionally only checks symbolic equivalence,
+      // not solution-set equivalence (would need to solve, not simplify).
+      expect(areEquivalent('2x + 4 = 10', 'x + 2 = 5')).toBe(false);
+      expect(areEquivalent('2y = 6x', 'y = 3x')).toBe(false);
     });
 
     it('returns false for different equations', () => {

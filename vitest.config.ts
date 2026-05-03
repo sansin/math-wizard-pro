@@ -32,6 +32,9 @@ export default defineConfig({
         'src/app/**/PracticeClient.tsx',
         'src/app/api/**',
 
+        // ── Pure type-definition files (no runtime code to cover) ─────
+        'src/lib/ai/types.ts',
+
         // ── Network-IO heavy files — exercised by integration/E2E ─────
         'src/lib/ai/providers/**',
         'src/lib/ai/key-resolver.ts',
@@ -56,7 +59,7 @@ export default defineConfig({
         'src/components/practice/PracticeScreen.tsx',
         'src/components/practice/ProviderBadge.tsx',
         'src/components/practice/ReportButton.tsx',
-        'src/components/practice/EndSummary.tsx',
+        'src/components/practice/SessionEndSummary.tsx',
         'src/components/practice/SolutionPanel.tsx',
         'src/components/settings/**',
         'src/components/ui/Card.tsx',
