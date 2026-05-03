@@ -123,9 +123,13 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
     : loading ? 'thinking' : 'idle';
 
   // ─── Load human skill names for the highlights/header (best-effort) ──
+  // We fetch the FULL catalog (no gradeBand filter) so the names map
+  // covers cross-grade selections — e.g., when the user picks skills
+  // via the "by module" view, their selection can span grade bands and
+  // we still want to render every skill's friendly name.
   React.useEffect(() => {
     let cancelled = false;
-    fetch(`/api/skills?gradeBand=${encodeURIComponent(gradeBand)}`)
+    fetch('/api/skills')
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
@@ -135,7 +139,7 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
       })
       .catch(() => { /* non-fatal */ });
     return () => { cancelled = true; };
-  }, [gradeBand]);
+  }, []);
 
   // ─── Start session on mount ──────────────────────────────────────────
   React.useEffect(() => {

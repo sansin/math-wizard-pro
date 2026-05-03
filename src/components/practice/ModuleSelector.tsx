@@ -4,6 +4,9 @@ import * as React from 'react';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
+import { ViewModeToggle } from './ViewModeToggle';
+import { ModuleView } from './ModuleView';
+import { useViewModePref } from '@/hooks/useViewModePref';
 import type { GradeBand, Skill } from '@/types/core';
 
 /**
@@ -169,9 +172,19 @@ interface MasteryInfo {
 }
 
 export function ModuleSelector({ studentName, defaultGradeBand, onStart }: ModuleSelectorProps) {
+  const [viewMode, setViewMode] = useViewModePref();
   const [gradeBand, setGradeBand] = React.useState<GradeBand>(defaultGradeBand);
+
+  // Two skill sets:
+  //   - skills:        the current grade band's skills (used by grade view)
+  //   - allSkills:     every skill regardless of grade (used by module view,
+  //                    which spans grade bands)
+  // We fetch both because users can flip between views without warning,
+  // and we never want them to see a flash of empty state.
   const [skills, setSkills] = React.useState<Skill[]>([]);
+  const [allSkills, setAllSkills] = React.useState<Skill[]>([]);
   const [mastery, setMastery] = React.useState<Record<string, MasteryInfo>>({});
+  const [allMastery, setAllMastery] = React.useState<Record<string, MasteryInfo>>({});
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [loading, setLoading] = React.useState(true);
 
@@ -191,6 +204,23 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
     return () => { cancelled = true; };
   }, [gradeBand]);
 
+  // Fetch the full cross-grade catalog once on mount. Module view needs
+  // all skills regardless of which grade band is currently selected.
+  // Refetched whenever viewMode flips to 'module' so per-skill mastery
+  // stays current with anything the user has practiced since last switch.
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/skills?withMastery=1')
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setAllSkills(data.skills ?? []);
+        setAllMastery(data.mastery ?? {});
+      })
+      .catch(() => { /* tolerate transient failure — module view shows empty */ });
+    return () => { cancelled = true; };
+  }, [viewMode]);
+
   // Group skills by module for cleaner display.
   const modules = React.useMemo(() => {
     const map = new Map<string, Skill[]>();
@@ -202,6 +232,8 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
     return Array.from(map.entries());
   }, [skills]);
 
+  // Toggle a single skill in the selection set. Shared between grade view
+  // and module view — `selected` is the union of choices across both modes.
   const toggle = (id: string) => {
     setSelected((s) => {
       const next = new Set(s);
@@ -213,17 +245,52 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
   const selectAll = () => setSelected(new Set(skills.map((s) => s.id)));
   const clearAll = () => setSelected(new Set());
 
+  // "Select all in module" handler for the module view: if everything in
+  // the module is already selected, deselect all of them; otherwise add
+  // all of them. Mirrors the grade view's per-module toggle behavior.
+  const onSelectAllInModule = (skillIds: string[], allSelected: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        skillIds.forEach((id) => next.delete(id));
+      } else {
+        skillIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold text-ink-900">
             Hi, {studentName} 👋
           </h1>
-          <p className="text-ink-600 mt-1">Pick a grade and choose what you want to practice.</p>
+          <p className="text-ink-600 mt-1">
+            {viewMode === 'grade'
+              ? 'Pick a grade and choose what you want to practice.'
+              : 'Pick a module and learn it across grades.'}
+          </p>
         </div>
+        <ViewModeToggle value={viewMode} onChange={setViewMode} />
       </div>
 
+      {viewMode === 'module' ? (
+        // ── BY-MODULE VIEW ──────────────────────────────────────────
+        <Card>
+          <CardBody>
+            <ModuleView
+              skills={allSkills}
+              mastery={allMastery}
+              selected={selected}
+              onToggle={toggle}
+              onSelectAllInModule={onSelectAllInModule}
+            />
+          </CardBody>
+        </Card>
+      ) : (
+      <>
       {/* Grade bands */}
       <Card>
         <CardBody>
@@ -393,8 +460,10 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
           )}
         </CardBody>
       </Card>
+      </>
+      )}
 
-      {/* Action bar */}
+      {/* Action bar — shared between grade and module views */}
       <div className="sticky bottom-4 z-10">
         <Card className="shadow-wizard-lg">
           <CardBody className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
