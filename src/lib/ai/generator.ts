@@ -16,7 +16,7 @@
  */
 
 import { z } from 'zod';
-import { route, type RouterContext } from './router';
+import { route, type RouterContext, type RouterOptions } from './router';
 import { buildQuestionBatchPrompt } from './prompts';
 import { verify } from '@/lib/math/verifier';
 import { hash32 } from '@/lib/utils';
@@ -178,6 +178,7 @@ function toQuestion(
 export async function generateBatch(
   params: GenerateBatchParams,
   ctx: RouterContext,
+  routerOptions?: RouterOptions,
 ): Promise<GenerateBatchResult> {
   const count = params.count ?? 5;
   const built = buildQuestionBatchPrompt({
@@ -206,6 +207,7 @@ export async function generateBatch(
         maxTokens: Math.min(8000, 1200 + need * 800),
       },
       ctx,
+      routerOptions,
     );
     attempts = attempts.concat(result.attempts);
 

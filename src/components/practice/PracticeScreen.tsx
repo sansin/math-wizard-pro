@@ -252,6 +252,9 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
           error?: string;
           detail?: string;
           attempts?: Array<{ provider: string; ok: boolean; error?: string }>;
+          configuredCount?: number;
+          byokCount?: number;
+          adminCount?: number;
         };
         throw new Error(friendlyError(j));
       }
@@ -733,30 +736,46 @@ function friendlyError(j: {
   error?: string;
   detail?: string;
   attempts?: Array<{ provider: string; ok: boolean; error?: string }>;
+  configuredCount?: number;
+  byokCount?: number;
+  adminCount?: number;
 }): string {
   if (j.error === 'no-providers') {
-    return 'No AI provider configured. Open Settings → AI Providers and add at least one key (Gemini and Cloudflare are free).';
+    return 'No AI provider configured. Open Settings → AI Providers and add at least one key (Gemini and Cloudflare are free, no credit card needed).';
   }
 
   if ((j.error === 'all-providers-failed' || j.error === 'generation-failed') && j.attempts && j.attempts.length > 0) {
     const failed = j.attempts.filter((a) => !a.ok);
+    const triedProviders = Array.from(new Set(failed.map((a) => a.provider)));
+    const configured = j.configuredCount ?? triedProviders.length;
+    const totalSupported = 10;
 
-    // All same reason?
-    const reasons = new Set(failed.map((a) => a.error ?? 'error'));
-    if (reasons.size === 1 && reasons.has('rate-limit')) {
-      const providers = Array.from(new Set(failed.map((a) => a.provider))).join(', ');
-      return `All AI providers (${providers}) are rate-limited right now. Add another provider in Settings → AI Providers, or wait a minute.`;
-    }
+    // Per-provider reason summary (dedupes when retries hit the same provider).
+    const lines = triedProviders.map((p) => {
+      const reasons = new Set(failed.filter((a) => a.provider === p).map((a) => a.error ?? 'error'));
+      return `${p}: ${Array.from(reasons).join('/')}`;
+    });
 
-    // Mixed reasons → give a per-provider breakdown.
-    const lines = failed.map((a) => `${a.provider}: ${a.error ?? 'error'}`);
-    const hasBadRequest = failed.some((a) => a.error === 'bad-request');
+    // Coverage hint — distinguish "I have all my providers in play" from
+    // "I only have 2 providers configured of 10 supported".
+    const coverage =
+      configured < 4
+        ? ` You have ${configured} of ${totalSupported} supported providers configured — adding more in Settings → AI Providers gives the router fallbacks when one rate-limits.`
+        : '';
+
+    // Failure-class hint.
+    const allRateLimited = failed.every((a) => a.error === 'rate-limit');
     const hasAuth = failed.some((a) => a.error === 'auth');
-    const hint = hasBadRequest || hasAuth
-      ? ' (Some keys look invalid — try removing and re-adding them in Settings.)'
+    const hasBadRequest = failed.some((a) => a.error === 'bad-request');
+    const errHint = allRateLimited
+      ? ' All hit rate limits — wait a moment and retry, or add more providers.'
+      : hasAuth
+      ? ' Some keys look invalid (auth failed) — verify in Settings.'
+      : hasBadRequest
+      ? ' Some providers returned bad-request — click ✓ Test key in Settings to diagnose.'
       : '';
 
-    return `Couldn't generate a question — all providers failed: ${lines.join(' · ')}.${hint}`;
+    return `Tried ${triedProviders.length} of ${configured} configured AI providers — all failed: ${lines.join(' · ')}.${errHint}${coverage}`;
   }
 
   if (j.error === 'no-skills-found') {

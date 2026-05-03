@@ -90,6 +90,19 @@ const QUALITY_ORDER: AIProviderId[] = parseEnvOrder() ?? [
   'openrouter', 'cloudflare', 'groq', 'cerebras', 'huggingface',
 ];
 
+/**
+ * Speed-first ordering used for the cold-cache "give the user a question
+ * NOW" path. Instant-tier providers (Cerebras, Groq) come first so the
+ * very first generation is as fast as possible. Quality-tier providers
+ * fall later in the chain — fine for the 1-question fast path.
+ */
+const SPEED_FIRST_ORDER: AIProviderId[] = parseEnvOrder() ?? [
+  'cerebras', 'groq', 'cloudflare', 'gemini',
+  'openrouter', 'mistral', 'claude', 'huggingface', 'deepseek', 'openai',
+];
+
+export { SPEED_FIRST_ORDER };
+
 export interface RouterOptions {
   /** Per-call timeout (ms). Defaults to 18s. */
   timeoutMs?: number;

@@ -14,12 +14,12 @@
  *      verified ones; serve one to the user.
  */
 
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { getServerClient, getServiceClient } from '@/lib/supabase/server';
 import { resolveKeysForUser, bumpSharedUsage } from '@/lib/ai/key-resolver';
 import { generateBatch } from '@/lib/ai/generator';
-import { NoProviderError } from '@/lib/ai/router';
+import { NoProviderError, SPEED_FIRST_ORDER } from '@/lib/ai/router';
 import { bumpUsage } from '@/lib/ai/usage-tracker';
 import { pickNext } from '@/lib/mastery/engine';
 import type { AIProviderId, Skill, SkillMastery } from '@/types/core';
@@ -175,19 +175,25 @@ export async function POST(req: Request) {
     );
   }
 
-  // Each cache miss generates 5 questions in a single API call, so a
-  // user can typically practice ~15 questions before triggering another
-  // generation (5 fresh × 3 difficulty buckets via fuzzy lookup).
+  // Cold-path optimization: when there are NO cached questions for this
+  // (skill, difficulty±1), generate just 1 question with the fastest
+  // providers first so the user sees something quickly. Then, AFTER the
+  // response is sent, schedule a background generation of 4 more to fill
+  // the cache for subsequent users (uses Next.js `after()`).
+  const isColdPath = cached.length === 0;
+  const requestedCount = isColdPath ? 1 : 5;
+
   let batch;
   try {
     batch = await generateBatch(
       {
         skill: pick.skill,
         difficulty: pick.difficulty,
-        count: 5,
+        count: requestedCount,
         avoidPromptHashes: body.avoidPromptHashes,
       },
       keys.ctx,
+      isColdPath ? { order: SPEED_FIRST_ORDER, timeoutMs: 25_000 } : undefined,
     );
   } catch (e) {
     // The router threw NoProviderError because every configured provider
@@ -200,6 +206,9 @@ export async function POST(req: Request) {
           detail:
             'All configured AI providers errored. Add another provider in Settings → AI Providers, or wait a minute and retry.',
           attempts: e.attempts,
+          configuredCount: keys.byok.length + keys.shared.length,
+          byokCount: keys.byok.length,
+          adminCount: keys.shared.length,
         },
         { status: 502 },
       );
@@ -209,7 +218,13 @@ export async function POST(req: Request) {
 
   if (batch.questions.length === 0) {
     return NextResponse.json(
-      { error: 'generation-failed', attempts: batch.attempts },
+      {
+        error: 'generation-failed',
+        attempts: batch.attempts,
+        configuredCount: keys.byok.length + keys.shared.length,
+        byokCount: keys.byok.length,
+        adminCount: keys.shared.length,
+      },
       { status: 502 },
     );
   }
@@ -254,6 +269,54 @@ export async function POST(req: Request) {
   // Identify the provider that actually succeeded — this is what we surface
   // in the UI so users can see "powered by Gemini" / "Claude" etc.
   const winningAttempt = batch.attempts.find((a) => a.ok);
+
+  // Cold-path warm-up: schedule a background generation of 4 more
+  // questions for this (skill, difficulty) so the SECOND user gets a
+  // cache hit. Uses Next.js `after()` so this work happens AFTER the
+  // response is sent — the user doesn't wait for it.
+  if (isColdPath && batch.questions.length === 1) {
+    const skill = pick.skill;
+    const difficulty = pick.difficulty;
+    const userKeys = keys.ctx;
+    const firstHash = first.promptHash;
+    const avoidForRefill = [...body.avoidPromptHashes, firstHash];
+    after(async () => {
+      try {
+        const refill = await generateBatch(
+          {
+            skill,
+            difficulty,
+            count: 4,
+            avoidPromptHashes: avoidForRefill,
+          },
+          userKeys,
+        );
+        if (refill.questions.length > 0) {
+          const sb2 = getServiceClient();
+          await sb2.from('questions').upsert(
+            refill.questions.map((q) => ({
+              id: q.id,
+              prompt_hash: q.promptHash,
+              skill_id: q.skillId,
+              difficulty: q.difficulty,
+              prompt: q.prompt,
+              answer: q.answer,
+              hints: q.hints,
+              solution: q.solution,
+              source: q.source,
+              provider: q.provider,
+              verified: true,
+            })),
+            { onConflict: 'prompt_hash' },
+          );
+          console.log(`[questions/next] cold-path warmed cache: skill=${skill.id} diff=${difficulty} +${refill.questions.length}`);
+        }
+      } catch (e) {
+        console.warn(`[questions/next] cold-path refill failed: ${(e as Error).message}`);
+      }
+    });
+  }
+
   return NextResponse.json({
     source: 'ai',
     reason: pick.reason,
@@ -262,5 +325,6 @@ export async function POST(req: Request) {
     providerSource: winningAttempt?.source ?? null, // 'user' | 'admin'
     attempts: batch.attempts,
     quota: keys.sharedQuota,
+    coldPath: isColdPath,
   });
 }
