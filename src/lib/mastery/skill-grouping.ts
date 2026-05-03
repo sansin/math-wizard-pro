@@ -131,33 +131,38 @@ export function unmetPrerequisites(
 
 /**
  * Aggregate progress across a set of skills (typically all skills in a
- * single module). Returns the average mastery, weighted by attempts so
- * skills the student has actually practiced count more than untouched
- * ones. Pure mean falls out when every skill has equal attempts.
+ * single module). Each skill counts equally — practiced skills contribute
+ * their actual mastery, UNTOUCHED skills contribute 0. The result is
+ * effectively `(sum of mastery across all skills) / number of skills`.
  *
- * Returns 0 when the input is empty (no skills) or when no skills have
- * any attempts yet.
+ * UX rationale: this metric answers "how much of the module have I
+ * learned?", not "how well do I do on the bits I've practiced?" An
+ * earlier version of this function averaged only touched skills, which
+ * produced a misleading "100% mastered" badge after practicing a single
+ * skill in a multi-skill module.
+ *
+ * Returns 0 mastery when the input is empty (no skills) or when no
+ * skills have any attempts yet.
  */
 export function moduleProgress(
   skills: Skill[],
   masteryByskillId: Record<SkillId, MasteryInfo>,
 ): { mastery: number; touchedCount: number; totalCount: number } {
   if (skills.length === 0) return { mastery: 0, touchedCount: 0, totalCount: 0 };
-  let weighted = 0;
-  let weight = 0;
+  let sum = 0;
   let touched = 0;
   for (const s of skills) {
     const m = masteryByskillId[s.id];
-    if (!m || m.attempts === 0) continue;
-    touched++;
-    // Weight: 1 for first attempt, capped at 10 (so a single hot skill
-    // doesn't dominate the module average).
-    const w = Math.min(10, Math.max(1, m.attempts));
-    weighted += w * m.mastery;
-    weight += w;
+    if (m && m.attempts > 0) {
+      sum += m.mastery;
+      touched++;
+    }
+    // Untouched skills contribute 0 to the sum (implicit) but DO still
+    // count toward the divisor (skills.length), pulling the average
+    // toward 0 until the user practices them.
   }
   return {
-    mastery: weight > 0 ? weighted / weight : 0,
+    mastery: sum / skills.length,
     touchedCount: touched,
     totalCount: skills.length,
   };

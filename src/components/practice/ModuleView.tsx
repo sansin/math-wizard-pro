@@ -10,6 +10,11 @@ import {
   unmetPrerequisites,
   type MasteryInfo,
 } from '@/lib/mastery/skill-grouping';
+import {
+  masteryBackgroundStyle,
+  masteryLabel,
+  masteryPercent,
+} from '@/lib/mastery/display';
 import type { Skill } from '@/types/core';
 
 /**
@@ -313,12 +318,14 @@ function SkillRow({
   onClick,
   accent,
 }: SkillRowProps) {
-  const masteryPct = masteryInfo && masteryInfo.attempts > 0
-    ? Math.round(masteryInfo.mastery * 100)
-    : null;
-  const masteryLabel = masteryInfo && masteryInfo.attempts > 0
-    ? labelFor(masteryInfo.mastery)
+  // Use the shared helpers so this row renders identically to the
+  // grade view's skill rows. If you change a threshold or color, change
+  // it once in src/lib/mastery/display.ts.
+  const masteryPct = masteryPercent(masteryInfo);
+  const label = masteryInfo && masteryInfo.attempts > 0
+    ? masteryLabel(masteryInfo.mastery)
     : 'Not started';
+  const fillStyle = masteryBackgroundStyle(masteryInfo, selected);
 
   const unmetNames = unmet.map((id) => {
     const s = allSkillsById.find((x) => x.id === id);
@@ -330,17 +337,23 @@ function SkillRow({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
+      // Compose the per-row mastery fill background with the selection
+      // border. Selection still reads via border color even when the
+      // mastery gradient is filling most of the background.
+      style={{
+        ...fillStyle,
+        ...(selected ? { borderColor: accent } : {}),
+      }}
       className={cn(
-        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+        'relative flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all overflow-hidden',
         selected
-          ? 'border-2 bg-white'
-          : 'border-ink-100 hover:border-ink-200 bg-white',
+          ? 'border-2'
+          : 'border-ink-100 hover:border-ink-200',
       )}
-      style={selected ? { borderColor: accent } : undefined}
     >
       <span
         className={cn(
-          'flex h-5 w-5 items-center justify-center rounded-md text-[10px] shrink-0',
+          'flex h-5 w-5 items-center justify-center rounded-md text-[10px] shrink-0 z-10',
           selected ? 'text-white' : 'bg-ink-100 text-ink-400',
         )}
         style={selected ? { background: accent } : undefined}
@@ -348,13 +361,13 @@ function SkillRow({
       >
         {selected ? '✓' : ''}
       </span>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 z-10">
         <div className="font-medium text-sm text-ink-900 leading-tight truncate">
           {skill.name}
         </div>
         {masteryPct !== null && (
           <div className="text-2xs text-ink-500 mt-0.5">
-            {masteryLabel} · {masteryPct}%
+            {label} · {masteryPct}%
           </div>
         )}
       </div>
@@ -377,7 +390,7 @@ function SkillRow({
           }
         >
           <span
-            className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-spell-100 text-spell-700 text-[11px] shrink-0"
+            className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-spell-100 text-spell-700 text-[11px] shrink-0 z-10"
             aria-hidden
           >
             !
@@ -391,7 +404,7 @@ function SkillRow({
 
 function DifficultyDots({ level }: { level: 1 | 2 | 3 | 4 | 5 }) {
   return (
-    <div className="flex items-center gap-0.5 shrink-0" aria-label={`Difficulty ${level} of 5`}>
+    <div className="flex items-center gap-0.5 shrink-0 z-10" aria-label={`Difficulty ${level} of 5`}>
       {[1, 2, 3, 4, 5].map((i) => (
         <span
           key={i}
@@ -406,12 +419,4 @@ function DifficultyDots({ level }: { level: 1 | 2 | 3 | 4 | 5 }) {
       ))}
     </div>
   );
-}
-
-function labelFor(m: number): string {
-  if (m < 0.2) return 'Just started';
-  if (m < 0.4) return 'Learning';
-  if (m < 0.7) return 'Familiar';
-  if (m < 0.9) return 'Solid';
-  return 'Mastered';
 }
