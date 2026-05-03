@@ -16,17 +16,21 @@
 | Database | Firebase (no rules committed) | Supabase Postgres + RLS, every table policy-locked |
 | Adaptive engine | "70% lowest-accuracy operation" | Per-skill mastery (FSRS-lite) + spaced repetition |
 | XP | 10 levels | 30 levels with extended ladder |
-| Tests | 48 (mostly form rendering) | Vitest unit + integration + Playwright e2e, real coverage on math engine |
-| Build | CRA (unmaintained) | Next.js 14 App Router |
+| Tests | 48 (mostly form rendering) | 150+ Vitest unit + integration + Playwright e2e, 92%+ coverage on math/mastery/auth |
+| Build | CRA (unmaintained) | Next.js 16 App Router with Turbopack |
+| Question quality | None | Verifier-backed pool + audit pipeline (dedupe, smart fixers, incremental gate) |
+| Provider rotation | Single provider | Cross-batch health tracker, daily-quota benching, provider scoreboard |
 
 ## Stack
 
-- **Frontend:** Next.js 14 + TypeScript + Tailwind + KaTeX + Recharts
-- **Backend:** Next.js Route Handlers (Edge-compatible) — runs on Cloudflare Pages, Vercel, Netlify, anywhere
-- **Database:** Supabase Postgres with Row-Level Security
-- **Auth:** Supabase Auth (email/password + magic link ready)
-- **AI:** 10-provider router with BYOK + admin keys + per-user shared-key quota
-- **Tests:** Vitest (unit + integration), Playwright (e2e), CI on every PR
+- **Frontend:** Next.js 16 (App Router, Turbopack) + React 19 + TypeScript strict + Tailwind + KaTeX + Recharts
+- **Backend:** Next.js Route Handlers — runs on Vercel, Cloudflare Pages, or any Node host
+- **Database:** Supabase Postgres with Row-Level Security on every table
+- **Auth:** Supabase Auth (email/password)
+- **AI:** 10-provider router with BYOK + admin keys + per-user shared-key quota, AES-256-GCM key encryption
+- **Math engine:** mathjs for symbolic verification + answer canonicalization + equation equivalence
+- **Tests:** Vitest 3 (unit + integration, 92%+ coverage), Playwright (e2e), CI on every PR
+- **Tooling:** `tsx` for the seed/audit/upload scripts, `dotenv` for env loading
 
 ## Quick start
 
@@ -35,13 +39,25 @@ git clone https://github.com/sansin/math-wizard-pro.git
 cd math-wizard-pro
 npm install
 cp .env.example .env.local
-# Fill in NEXT_PUBLIC_SUPABASE_URL, anon key, service-role key,
-# KEY_ENCRYPTION_SECRET (run: openssl rand -hex 32),
-# and at least one AI provider key.
+```
+
+Fill in `.env.local`:
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Anon (public) Supabase key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only — keep this secret |
+| `KEY_ENCRYPTION_SECRET` | 32 random bytes — generate with `openssl rand -hex 32` |
+| At least one AI provider key | Any of `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `CLOUDFLARE_*`, `CEREBRAS_API_KEY`, etc. |
+| `DISABLE_SHARED_KEYS` | `false` to let users use admin/env keys, `true` to force BYOK |
+| `NEXT_PUBLIC_V1_URL` (optional) | URL of the v1 Classic app for the cross-link banner |
+
+```bash
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000 (Next will fall back to 3001 if 3000 is taken).
 
 ## Database setup (Supabase, free tier)
 
@@ -56,13 +72,29 @@ Open http://localhost:3000.
 
 ## AI providers — get free keys in 5 minutes
 
-1. **Gemini** (recommended primary): https://aistudio.google.com/apikey — 1500 free req/day.
-2. **Groq**: https://console.groq.com/keys — free tier, very fast.
-3. **Cerebras**: https://cloud.cerebras.ai — free tier, fastest inference.
-4. (Optional, paid) Claude, OpenAI, DeepSeek for fallback / quality boost.
+The app routes across up to 10 providers with automatic fallback,
+per-batch health tracking, and daily-quota benching. None of the
+following require a credit card.
+
+**Recommended free tier (production-tested order):**
+
+1. **Cloudflare Workers AI**: https://dash.cloudflare.com → AI / Workers AI → Create token. 10K Neurons/day free, very clean JSON output.
+2. **Groq**: https://console.groq.com/keys — Llama 3.3 70B, fastest, large daily TPD.
+3. **Mistral**: https://console.mistral.ai → API Keys — most generous free quota, highest observed quality (99.5% clean in our 14K-question seed).
+4. **Gemini**: https://aistudio.google.com/apikey — 1500 RPD free.
+5. **Cerebras**: https://cloud.cerebras.ai — fast inference; demoted in router order due to LaTeX-in-JSON quirks.
+6. **OpenRouter, Mistral, HuggingFace** — additional fallbacks.
+
+**Optional paid providers** (Claude, OpenAI, DeepSeek): only used when
+the free tier is exhausted. Adding any one of these gives the router
+a paid safety net; if you don't add them, the router gracefully fails
+with a "wait and retry / add more providers" message.
 
 Add them to `.env.local` as admin keys, **or** let users add their own via
-Settings → AI Providers (BYOK). The router prefers user keys over admin keys.
+**Settings → AI Providers** (BYOK). The router prefers user keys over admin
+keys, then falls through the chain in order. You can override the order
+per-environment with `AI_PROVIDER_ORDER=mistral,cloudflare,groq,...` in
+`.env.local`.
 
 ## Building the question pool — seed → audit → ship
 
@@ -178,6 +210,34 @@ npm run audit:fix                    # audit + fix only the new ones
 The audit gate (`last_audited_at IS NULL` filter) means subsequent
 runs are seconds, not minutes, even with a 30K-question pool.
 
+## Test coverage
+
+```bash
+npm test                       # Vitest unit + integration (152 tests, ~2s)
+npm run test:coverage          # with coverage gates enforced
+npm run test:e2e               # Playwright e2e (separate flow)
+npm run typecheck              # TypeScript strict, no implicit any, noUncheckedIndexedAccess
+```
+
+Coverage gates in `vitest.config.ts` apply to the libraries and the
+unit-tested components — UI components and route handlers are covered
+by Playwright e2e and excluded from the gate scope. Current numbers
+on the in-scope files:
+
+| Area | Lines | Functions |
+|---|---:|---:|
+| `lib/utils` | 100% | 100% |
+| `lib/mastery/{engine,xp}` | 95% | 100% |
+| `lib/math/{parser,checker,verifier,equivalence}` | 92% | 100% |
+| `lib/ai/{router,encryption}` | 94% | 100% |
+| `components/{ui/Button, math/*, practice/HintLadder}` | 92% | 100% |
+| **Aggregate (in-scope)** | **92.3%** | **100%** |
+
+Thresholds: lines ≥ 80, statements ≥ 80, branches ≥ 75, functions ≥ 90.
+
+To bring a UI component into coverage gating, remove its line from the
+`exclude` list in `vitest.config.ts` and add a unit test for it.
+
 ## Deploy to Cloudflare Pages (free)
 
 1. Push the repo to GitHub.
@@ -210,37 +270,63 @@ maintaining a feature flag in code.
 
 ```
 ┌─ src/
-│  ├─ app/                    Next.js App Router pages + route handlers
-│  │  ├─ api/                 Route handlers (questions, attempts, keys, etc.)
-│  │  ├─ practice/            Student practice flow
-│  │  ├─ dashboard/           Student progress
-│  │  ├─ parent/              Parent view
-│  │  ├─ settings/            Profile + AI provider keys
-│  │  ├─ migrate/             v1 → v2 import flow
-│  │  └─ login/               Auth
+│  ├─ app/                       Next.js App Router pages + route handlers
+│  │  ├─ api/                    Route handlers
+│  │  │  ├─ questions/next       Cache-first generator with health-tracked router
+│  │  │  ├─ questions/report     Flag-a-question endpoint (used by ReportButton)
+│  │  │  ├─ attempts/            Submit + scoring + mastery update
+│  │  │  ├─ skills/              Skill catalog with mastery overlay
+│  │  │  ├─ keys/                BYOK CRUD (encrypted at rest)
+│  │  │  ├─ sessions/            Practice/test session lifecycle
+│  │  │  └─ parent/              Weekly parent digest
+│  │  ├─ practice/               Student practice flow
+│  │  ├─ dashboard/              Student progress
+│  │  ├─ parent/                 Parent view
+│  │  ├─ settings/               Profile + AI provider keys
+│  │  ├─ migrate/                v1 → v2 import flow
+│  │  └─ login/                  Auth
 │  ├─ components/
-│  │  ├─ ui/                  Button, Card, Input, Modal
-│  │  ├─ math/                MathRender (KaTeX), AnswerInput
-│  │  ├─ practice/            ModuleSelector, PracticeScreen, HintLadder, SolutionPanel
-│  │  ├─ dashboard/           StudentDashboard
-│  │  ├─ parent/              ParentDashboard
-│  │  ├─ settings/            ProviderSettings, ProfileSettings
-│  │  └─ Wizard.tsx           SVG mascot
+│  │  ├─ ui/                     Button, Card, Input, Modal
+│  │  ├─ math/                   MathRender (KaTeX), AnswerInput
+│  │  ├─ practice/               ModuleSelector, PracticeScreen, HintLadder,
+│  │  │                          SolutionPanel, ProviderBadge, ReportButton,
+│  │  │                          SessionEndSummary
+│  │  ├─ layout/                 AppShell, KeyReminder
+│  │  ├─ dashboard/              StudentDashboard
+│  │  ├─ parent/                 ParentDashboard
+│  │  ├─ settings/               ProviderSettings, ProfileSettings
+│  │  └─ Wizard.tsx              SVG mascot
 │  ├─ lib/
-│  │  ├─ ai/                  Multi-provider router + 6 providers + BYOK encryption
-│  │  ├─ math/                Parser, checker, verifier (mathjs)
-│  │  ├─ mastery/             Adaptive engine (skill picking + difficulty), XP
-│  │  ├─ supabase/            Server + browser clients
-│  │  └─ firebase/            Legacy v1 helpers (migration only)
-│  └─ types/                  Domain types
+│  │  ├─ ai/                     Multi-provider router + 10 providers + BYOK encryption
+│  │  │                          + key resolver + usage tracking
+│  │  ├─ math/                   Parser, checker, verifier, equivalence (mathjs)
+│  │  ├─ mastery/                Adaptive engine + XP/levels
+│  │  ├─ supabase/               Server + browser clients
+│  │  └─ firebase/               Legacy v1 helpers (migration only)
+│  └─ types/                     Domain types
 ├─ supabase/
-│  └─ migrations/             SQL — schema, RLS, triggers, seed
+│  └─ migrations/                SQL — schema, RLS, triggers, seed, audit-state
 ├─ tests/
-│  ├─ unit/                   Vitest — parser, checker, verifier, XP, router, components
-│  ├─ integration/            Multi-piece flows
-│  └─ e2e/                    Playwright — landing, auth, a11y
-└─ scripts/
-   └─ v1-toggle-patch.md      Tiny patch for v1 to add the "Try Pro" button
+│  ├─ unit/                      Vitest — parser, checker, verifier,
+│  │                             equivalence, XP, mastery, router, encryption,
+│  │                             4 components (Button/AnswerInput/MathRender/HintLadder)
+│  ├─ integration/               Multi-piece flows (attempts API, etc.)
+│  └─ e2e/                       Playwright — landing, auth, a11y
+├─ scripts/
+│  ├─ seed-cache.ts              Bulk-populate question pool via prod pipeline
+│  ├─ audit-questions.ts         Dedupe + audit + smart fixers + re-audit
+│  ├─ upload-curated-questions.ts  Hand-curated JSON → DB (uses prod verifier)
+│  ├─ quality-spot-check.sql     Morning audit queries for the SQL editor
+│  ├─ _load-env.ts               .env.local loader (imported first)
+│  └─ v1-toggle-patch.md         Tiny patch for v1 to add the "Try Pro" button
+├─ data/
+│  └─ seed/curated/              Hand-curated question batches (JSON)
+└─ docs/
+   ├─ ARCHITECTURE.md            System design
+   ├─ SECURITY.md                Threat model + key handling
+   ├─ SETUP.md                   Step-by-step deploy
+   ├─ SEED_CACHE.md              Seed pipeline runbook
+   └─ GO_LIVE.md                 Pre-launch checklist
 ```
 
 ## How a question gets to the user
@@ -249,35 +335,99 @@ maintaining a feature flag in code.
 [student clicks Practice]
        │
        ▼
-GET /api/questions/next
+POST /api/questions/next
        │
        ├─ adaptiveEngine.pickNext(skills, mastery)  →  (skill, difficulty)
        │
-       ├─ try cache: questions WHERE skill_id, difficulty, !seen
-       │       └─ found → return immediately ✓
+       ├─ Cache lookup (3 tiers):
+       │    1. Exact match: skill + difficulty + not-seen-by-this-user
+       │    2. Adjacent difficulty (±1) if exact tier is empty
+       │    3. Quality-weighted ranking: prefers low flagged_count + high correctness
+       │           found → return immediately ✓ (sub-second)
        │
-       └─ cache miss → resolveKeysForUser(userId)
-                          ├─ user BYOK keys (preferred)
-                          └─ admin keys (if not blocked + within quota)
+       └─ Cache miss → resolveKeysForUser(userId)
+                          ├─ user BYOK keys (preferred, decrypted just in time)
+                          └─ admin keys from env (if user not opted out + within quota)
                        → router.route(prompt, ctx)
-                          fallback chain over up to 6 providers
+                          • Fallback chain across up to 10 providers
+                          • Cross-batch health tracker benches dead providers
+                          • SPEED_FIRST_ORDER for cold-cache, FREE_FIRST_ORDER for batch
                        → generator.generateBatch(N=5)
+                          • Token budget tuned for verbose-LaTeX skills (12K cap)
+                          • LaTeX-in-JSON escape repair (handles \times, \nu, etc.)
+                          • Retry skips providers that produced unparseable JSON
                           for each draft:
                              ├─ verify(prompt, claimedAnswer) via mathjs
-                             ├─ reject if mismatch (regenerate up to MAX_RETRIES)
+                             ├─ reject if mismatch → regenerate up to MAX_RETRIES
                              └─ accept → cache row, return first to user
+
+       │
+       ▼
+After delivery (next.after()):
+       • Background prefetch of next question for this skill/difficulty
+       • Multi-difficulty warm-up (D-1, D, D+1) so adjacent tiers stay warm
 ```
 
 Result: every question shipped to the student has a verified answer. The
 "answer is 0 when it's actually 6x" class of v1 bug is impossible.
 
+## Quality control — the audit pipeline
+
+Verified-at-generation is the foundation; the audit pipeline is the
+ongoing quality bar. It's how we keep the pool at 99.5%+ clean as the
+seed runs add tens of thousands of questions.
+
+`npm run audit:fix` runs the full cycle:
+
+1. **Dedupe** — normalized-prompt hash (LaTeX-stripped, lowercased,
+   punctuation-stripped) finds near-duplicates the existing
+   `prompt_hash UNIQUE` index misses. Keeps the best version
+   (highest served_count → lowest flagged_count → oldest).
+2. **Schema audit** — every question re-validated against the same
+   zod schemas the live router uses.
+3. **Production verifier re-run** — re-checks every stored numeric
+   answer against the prompt's arithmetic, every fraction's parse,
+   every expression's mathjs canonicalization.
+4. **Quality checks** — hint-spoiler detection, solution-no-answer
+   check, broken-LaTeX detection.
+5. **Smart auto-fixers**:
+   - `prompt-bare-dollar-currency` → strips bare `$N` outside LaTeX, replaces with USD
+   - `prompt-latex-break` → multi-pattern repair (trailing `$$`, stray inner `$`, bare-currency sequences)
+   - `hint-spoiler` → rewrites "Count: A, B, C..." templates that leak the answer
+   - `solution-no-answer` → appends a "Final answer" closing step
+6. **Re-audit** — confirms patches stuck.
+7. **Mark audited** — incremental gate so subsequent runs only
+   process newly-seeded rows.
+
+In production we took a 14,348-question pool from 71% clean to **99.5%
+clean** with a single `npm run audit:fix` and zero API calls (all fixes
+are deterministic).
+
+Real users surface the long-tail issues via the **🚩 Report this question**
+button. Once a question's `flagged_count >= 3`, it's auto-demoted in the
+cache lookup so other students stop seeing it.
+
 ## Privacy & safety
 
-- API keys (BYOK) encrypted with AES-256-GCM before storage.
-- Service role key never reaches the browser bundle.
-- Firestore RLS by default — every table denies, then allows owners explicitly.
-- Children's email addresses are the only PII stored. No location, no tracking,
-  no third-party analytics.
+- **BYOK encryption:** user-supplied API keys are encrypted with
+  AES-256-GCM (Web Crypto API) before storage in Postgres. The
+  encryption secret (`KEY_ENCRYPTION_SECRET`, 32 random bytes) lives
+  only in the server's environment — never in the database, never in
+  the browser bundle.
+- **No service-role key in the client:** the Supabase service role key
+  is held server-side only and is used by route handlers. The browser
+  receives the anon key, which is gated by RLS.
+- **Postgres RLS by default:** every table denies all access, then
+  allows owners (and admins, where applicable) explicitly. See
+  `supabase/migrations/20260428000002_rls_policies.sql`.
+- **Minimal PII:** account email is the only personal data stored.
+  No location, no tracking pixels, no third-party analytics.
+- **Report-driven retirement:** users can flag bad questions. Three
+  flags retire the question from the lookup pool — no manual review
+  bottleneck.
+
+For the full threat model and key-handling notes, see
+[`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Roadmap (post-launch)
 
