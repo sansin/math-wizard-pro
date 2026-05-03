@@ -212,7 +212,9 @@ describe('moduleProgress', () => {
     expect(moduleProgress([], {})).toEqual({ mastery: 0, touchedCount: 0, totalCount: 0 });
   });
 
-  it('counts only attempted skills toward weighted average', () => {
+  it('treats untouched skills as 0 mastery in the average', () => {
+    // 2 of 3 skills practiced, 3rd untouched — the untouched one PULLS
+    // THE AVERAGE DOWN, it doesn't get skipped.
     const skills = [
       makeSkill({ id: 'a', name: 'a' }),
       makeSkill({ id: 'b', name: 'b' }),
@@ -221,16 +223,16 @@ describe('moduleProgress', () => {
     const masteries = {
       a: { mastery: 0.8, attempts: 5, lastAttemptAt: null },
       b: { mastery: 0.4, attempts: 5, lastAttemptAt: null },
-      // c untouched
+      // c untouched → contributes 0
     };
     const r = moduleProgress(skills, masteries);
     expect(r.touchedCount).toBe(2);
     expect(r.totalCount).toBe(3);
-    // Equal weights → simple mean of touched skills
-    expect(r.mastery).toBeCloseTo(0.6, 5);
+    // (0.8 + 0.4 + 0) / 3 = 0.4
+    expect(r.mastery).toBeCloseTo(0.4, 5);
   });
 
-  it('returns 0 mastery and 0 touched when no skill has been practiced', () => {
+  it('returns 0 mastery when no skills have been practiced', () => {
     const skills = [makeSkill({ id: 'a', name: 'a' })];
     expect(moduleProgress(skills, {})).toEqual({
       mastery: 0,
@@ -239,7 +241,10 @@ describe('moduleProgress', () => {
     });
   });
 
-  it('weights more-attempted skills higher (capped at 10)', () => {
+  it('weights every skill equally regardless of attempt count', () => {
+    // Earlier versions weighted by attempts (capped at 10), making a
+    // single hot skill dominate the module score. Now every skill counts
+    // as one vote.
     const skills = [
       makeSkill({ id: 'hot', name: 'hot' }),
       makeSkill({ id: 'cold', name: 'cold' }),
@@ -249,8 +254,7 @@ describe('moduleProgress', () => {
       cold: { mastery: 0.1, attempts: 1, lastAttemptAt: null },
     };
     const r = moduleProgress(skills, masteries);
-    // hot weight = 10 (capped), cold weight = 1; mean = (10*0.9 + 1*0.1) / 11
-    expect(r.mastery).toBeCloseTo((10 * 0.9 + 1 * 0.1) / 11, 5);
+    expect(r.mastery).toBeCloseTo((0.9 + 0.1) / 2, 5);
   });
 
   it('counts a skill with attempts=0 as untouched even if it has a row', () => {
@@ -260,6 +264,40 @@ describe('moduleProgress', () => {
     };
     const r = moduleProgress(skills, masteries);
     expect(r.touchedCount).toBe(0);
+    // attempts=0 → ignored even though mastery=0.5; result = 0/1 = 0
     expect(r.mastery).toBe(0);
+  });
+
+  it('regression: 1 mastered skill in a 5-skill module reads as ~20%, not 100%', () => {
+    // The exact production scenario: user practiced ONE Statistics skill
+    // (g45.stats.mean) at mastery=1.0 with 1 attempt, and the UI showed
+    // "Statistics 100%" because the old formula averaged only touched
+    // skills. Module mastery should reflect coverage of the WHOLE module,
+    // so untouched skills contribute 0.
+    const skills = Array.from({ length: 5 }, (_, i) =>
+      makeSkill({ id: `s${i}`, name: `Skill ${i}`, module: 'Statistics' }),
+    );
+    const masteries = {
+      s0: { mastery: 1.0, attempts: 1, lastAttemptAt: null },
+      // s1..s4 untouched
+    };
+    const r = moduleProgress(skills, masteries);
+    expect(r.touchedCount).toBe(1);
+    expect(r.totalCount).toBe(5);
+    expect(r.mastery).toBeCloseTo(0.2, 5);
+  });
+
+  it('regression: 1 partially-mastered skill in a 5-skill module reads as ~16%, not 78%', () => {
+    // The other half of the production scenario: g45.frac.add at
+    // mastery=0.78, 5 attempts, in the 5-skill Fractions module.
+    // Old formula → 78%. New formula → 0.78/5 = 15.6%.
+    const skills = Array.from({ length: 5 }, (_, i) =>
+      makeSkill({ id: `f${i}`, name: `Skill ${i}`, module: 'Fractions' }),
+    );
+    const masteries = {
+      f0: { mastery: 0.78, attempts: 5, lastAttemptAt: null },
+    };
+    const r = moduleProgress(skills, masteries);
+    expect(r.mastery).toBeCloseTo(0.156, 3);
   });
 });

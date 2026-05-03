@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { ViewModeToggle } from './ViewModeToggle';
 import { ModuleView } from './ModuleView';
 import { useViewModePref } from '@/hooks/useViewModePref';
+import { masteryBackgroundStyle, masteryLabel } from '@/lib/mastery/display';
 import type { GradeBand, Skill } from '@/types/core';
 
 /**
@@ -87,48 +88,10 @@ const DEFAULT_MODULE_THEME: ModuleTheme = {
   bar: '#5524BB',
 };
 
-/**
- * Build the inline `background` style for a skill row, where the row's
- * background fills left-to-right by mastery (0..1). Color shifts:
- *   - low mastery (0-30%):  pale ember (warm red)
- *   - mid mastery (30-70%): pale gold
- *   - high mastery (70%+):  pale leaf (green)
- *
- * For unselected rows we use a soft `linear-gradient` that gives a
- * "fill bar" feel without being noisy. Selected rows blend into a
- * wizard-tinted version so the selection state still reads clearly.
- */
-function masteryBackgroundStyle(
-  m: { mastery: number; attempts: number } | undefined,
-  selected: boolean,
-): React.CSSProperties | undefined {
-  if (!m || m.attempts === 0) {
-    return selected
-      ? { background: '#F4F0FF' /* wizard-50 */ }
-      : { background: '#FFFFFF' };
-  }
-  const pct = Math.max(2, Math.min(100, Math.round(m.mastery * 100)));
-  // Pale fill colors (light enough that black text stays readable).
-  const fill =
-    m.mastery < 0.3 ? '#FFE3DC'        // ember-ish
-    : m.mastery < 0.7 ? '#FFEEC2'      // spell-ish
-    :                   '#D4F2DD';     // leaf-ish
-  // The unfilled portion uses wizard-50 when selected, white otherwise,
-  // so selection is still distinguishable from unselected.
-  const rest = selected ? '#F4F0FF' : '#FFFFFF';
-  return {
-    background: `linear-gradient(to right, ${fill} 0%, ${fill} ${pct}%, ${rest} ${pct}%, ${rest} 100%)`,
-  };
-}
-
-/** Human label for a mastery score (matches the practice screen vocabulary). */
-function masteryLabel(mastery: number): string {
-  if (mastery < 0.2) return 'Just started';
-  if (mastery < 0.4) return 'Learning';
-  if (mastery < 0.7) return 'Familiar';
-  if (mastery < 0.9) return 'Solid';
-  return 'Mastered';
-}
+// Mastery-display helpers (masteryBackgroundStyle, masteryLabel) live in
+// src/lib/mastery/display.ts so the grade and module views render skill
+// rows with identical visual treatment. Importing rather than re-deriving
+// here means the two views can never drift apart on thresholds or colors.
 
 /** A 5-dot meter for skill difficulty (intrinsic difficulty 1-5). */
 function DifficultyDots({ level }: { level: 1 | 2 | 3 | 4 | 5 }) {
