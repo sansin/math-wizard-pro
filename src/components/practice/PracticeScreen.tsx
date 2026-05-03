@@ -101,6 +101,20 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
   // unmount (End session) and avoid spurious 500s in the server logs.
   const inFlightRef = React.useRef<AbortController | null>(null);
 
+  // Prefetched next question. While the user is reading/answering question N,
+  // we silently fetch question N+1 in the background. When they click "Next
+  // question →" we swap it in immediately — no loading spinner.
+  // The prefetch's input state is captured at the time it fires; when the
+  // user's actual answer changes the predicted state significantly we
+  // discard the prefetch and load fresh.
+  const prefetchedRef = React.useRef<{
+    data: { question: Question; reason: string; provider: string | null; providerSource: string | null };
+    /** What lastWasCorrect / lastDifficulty we assumed when prefetching. */
+    assumedCorrect: boolean | undefined;
+    assumedDifficulty: number | undefined;
+  } | null>(null);
+  const prefetchAbortRef = React.useRef<AbortController | null>(null);
+
   const wizardMood: WizardMood = attempt.status === 'correct'
     ? 'happy'
     : (attempt.status === 'wrong-retry' || attempt.status === 'wrong-revealed')
@@ -143,17 +157,67 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
     })();
     return () => {
       cancelled = true;
-      // Abort any in-flight question fetch when unmounting (End session).
+      // Abort any in-flight fetch (foreground + prefetch) when unmounting.
       if (inFlightRef.current) {
         inFlightRef.current.abort();
         inFlightRef.current = null;
       }
+      if (prefetchAbortRef.current) {
+        prefetchAbortRef.current.abort();
+        prefetchAbortRef.current = null;
+      }
+      prefetchedRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Apply a fetched question payload to the practice screen state. */
+  function applyQuestion(data: {
+    question: Question;
+    reason?: string;
+    provider?: string | null;
+    providerSource?: string | null;
+  }) {
+    setQuestion(data.question);
+    setReason(data.reason ?? '');
+    setProviderInfo({
+      provider: data.provider ?? null,
+      source: data.providerSource ?? null,
+    });
+    setQuestionStart(Date.now());
+    setRecentSkillIds((s) => [...s.slice(-9), data.question.skillId]);
+    setRecentHashes((h) => [...h.slice(-49), data.question.promptHash]);
+  }
+
   async function loadNext(sId: string | null = sessionId) {
-    // Abort any previous in-flight fetch.
+    // ─── Prefetch fast-path ───────────────────────────────────────────
+    // If we have a prefetched question whose assumed input state matches
+    // what we'd send now, use it immediately — zero perceived latency.
+    const pre = prefetchedRef.current;
+    if (
+      pre &&
+      pre.assumedCorrect === lastWasCorrect &&
+      pre.assumedDifficulty === lastDifficulty
+    ) {
+      console.log('[loadNext] using prefetched question');
+      prefetchedRef.current = null;
+      setError(null);
+      setAnswer('');
+      setHintsUsed(0);
+      setAttempt({ status: 'idle', xpEarned: 0, expectedDisplay: '', attempts: 0 });
+      applyQuestion(pre.data);
+      // Kick off prefetch for the question AFTER this one.
+      void prefetchNext();
+      return;
+    }
+    if (pre) {
+      // Prefetch is stale — discard.
+      console.log('[loadNext] prefetch stale (state changed), discarding');
+      prefetchedRef.current = null;
+      if (prefetchAbortRef.current) prefetchAbortRef.current.abort();
+    }
+
+    // ─── Regular path ─────────────────────────────────────────────────
     if (inFlightRef.current) inFlightRef.current.abort();
     const controller = new AbortController();
     inFlightRef.current = controller;
@@ -197,12 +261,9 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
         `hash=${(data.question.promptHash ?? '').slice(0, 6)} skill=${data.question.skillId} ` +
         `diff=${data.question.difficulty} source=${data.source}`,
       );
-      setQuestion(data.question);
-      setReason(data.reason ?? '');
-      setProviderInfo({ provider: data.provider ?? null, source: data.providerSource ?? null });
-      setQuestionStart(Date.now());
-      setRecentSkillIds((s) => [...s.slice(-9), data.question.skillId]);
-      setRecentHashes((h) => [...h.slice(-49), data.question.promptHash]);
+      applyQuestion(data);
+      // Kick off background prefetch for the next question.
+      void prefetchNext();
     } catch (e) {
       // Aborted requests are expected during End Session; don't surface as error.
       if ((e as Error).name === 'AbortError') {
@@ -214,6 +275,60 @@ export function PracticeScreen({ skillIds, studentName, gradeBand, mode, onEnd }
     } finally {
       if (inFlightRef.current === controller) inFlightRef.current = null;
       setLoading(false);
+    }
+  }
+
+  /**
+   * Silently fetch the question that the user will probably see NEXT,
+   * assuming they'll get the current one correct (since ~70%+ of attempts
+   * are correct in flow-zone-tuned practice). If the user actually gets
+   * it wrong, the prefetch is discarded in loadNext().
+   *
+   * The prefetch never updates UI state — it only fills prefetchedRef.
+   */
+  async function prefetchNext() {
+    // Capture assumptions: predict the user will get the CURRENT question
+    // right (best case), bump difficulty by 1.
+    const assumedCorrect = true;
+    const assumedDifficulty = question?.difficulty;
+    const avoidSnapshot = [
+      ...recentHashes.slice(-29),
+      question?.promptHash, // include the current question's hash too
+    ].filter(Boolean) as string[];
+
+    if (prefetchAbortRef.current) prefetchAbortRef.current.abort();
+    const controller = new AbortController();
+    prefetchAbortRef.current = controller;
+
+    try {
+      const res = await fetch('/api/questions/next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skillIds,
+          lastDifficulty: assumedDifficulty,
+          lastWasCorrect: assumedCorrect,
+          recentSkillIds: [...recentSkillIds.slice(-4), question?.skillId].filter(Boolean),
+          avoidPromptHashes: avoidSnapshot,
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // Quietly drop — we'll just fetch fresh on the next click.
+        return;
+      }
+      const data = await res.json();
+      prefetchedRef.current = {
+        data,
+        assumedCorrect,
+        assumedDifficulty,
+      };
+      console.log(`[prefetch] ready | id=${data.question.id?.slice(0, 8)} hash=${(data.question.promptHash ?? '').slice(0, 6)}`);
+    } catch {
+      // Prefetch failures are non-fatal — they just mean the user waits
+      // a normal amount of time on the next click instead of zero.
+    } finally {
+      if (prefetchAbortRef.current === controller) prefetchAbortRef.current = null;
     }
   }
 

@@ -36,6 +36,49 @@ const MODULE_ICONS: Record<string, string> = {
   'Logic': '🧩',
 };
 
+/**
+ * Build the inline `background` style for a skill row, where the row's
+ * background fills left-to-right by mastery (0..1). Color shifts:
+ *   - low mastery (0-30%):  pale ember (warm red)
+ *   - mid mastery (30-70%): pale gold
+ *   - high mastery (70%+):  pale leaf (green)
+ *
+ * For unselected rows we use a soft `linear-gradient` that gives a
+ * "fill bar" feel without being noisy. Selected rows blend into a
+ * wizard-tinted version so the selection state still reads clearly.
+ */
+function masteryBackgroundStyle(
+  m: { mastery: number; attempts: number } | undefined,
+  selected: boolean,
+): React.CSSProperties | undefined {
+  if (!m || m.attempts === 0) {
+    return selected
+      ? { background: '#F4F0FF' /* wizard-50 */ }
+      : { background: '#FFFFFF' };
+  }
+  const pct = Math.max(2, Math.min(100, Math.round(m.mastery * 100)));
+  // Pale fill colors (light enough that black text stays readable).
+  const fill =
+    m.mastery < 0.3 ? '#FFE3DC'        // ember-ish
+    : m.mastery < 0.7 ? '#FFEEC2'      // spell-ish
+    :                   '#D4F2DD';     // leaf-ish
+  // The unfilled portion uses wizard-50 when selected, white otherwise,
+  // so selection is still distinguishable from unselected.
+  const rest = selected ? '#F4F0FF' : '#FFFFFF';
+  return {
+    background: `linear-gradient(to right, ${fill} 0%, ${fill} ${pct}%, ${rest} ${pct}%, ${rest} 100%)`,
+  };
+}
+
+/** Human label for a mastery score (matches the practice screen vocabulary). */
+function masteryLabel(mastery: number): string {
+  if (mastery < 0.2) return 'Just started';
+  if (mastery < 0.4) return 'Learning';
+  if (mastery < 0.7) return 'Familiar';
+  if (mastery < 0.9) return 'Solid';
+  return 'Mastered';
+}
+
 /** A 5-dot meter for skill difficulty (intrinsic difficulty 1-5). */
 function DifficultyDots({ level }: { level: 1 | 2 | 3 | 4 | 5 }) {
   return (
@@ -71,21 +114,29 @@ export interface ModuleSelectorProps {
   onStart: (config: { gradeBand: GradeBand; skillIds: string[]; mode: 'practice' | 'test' }) => void;
 }
 
+interface MasteryInfo {
+  mastery: number;
+  attempts: number;
+  lastAttemptAt: string | null;
+}
+
 export function ModuleSelector({ studentName, defaultGradeBand, onStart }: ModuleSelectorProps) {
   const [gradeBand, setGradeBand] = React.useState<GradeBand>(defaultGradeBand);
   const [skills, setSkills] = React.useState<Skill[]>([]);
+  const [mastery, setMastery] = React.useState<Record<string, MasteryInfo>>({});
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [loading, setLoading] = React.useState(true);
 
-  // Fetch skills for the chosen grade band.
+  // Fetch skills + the user's mastery for the chosen grade band.
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/skills?gradeBand=${encodeURIComponent(gradeBand)}`)
+    fetch(`/api/skills?gradeBand=${encodeURIComponent(gradeBand)}&withMastery=1`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
         setSkills(data.skills ?? []);
+        setMastery(data.mastery ?? {});
         setSelected(new Set());
       })
       .finally(() => !cancelled && setLoading(false));
@@ -228,35 +279,44 @@ export function ModuleSelector({ studentName, defaultGradeBand, onStart }: Modul
                       </button>
                     </div>
 
-                    {/* Compact skill rows */}
+                    {/* Compact skill rows — background fills left-to-right
+                        based on the user's mastery for that skill. */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       {moduleSkills.map((s) => {
                         const sel = selected.has(s.id);
+                        const m = mastery[s.id];
+                        const masteryFill = masteryBackgroundStyle(m, sel);
                         return (
                           <button
                             key={s.id}
                             onClick={() => toggle(s.id)}
                             aria-pressed={sel}
+                            style={masteryFill}
                             className={cn(
-                              'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                              'relative flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all overflow-hidden',
                               sel
-                                ? 'border-wizard-400 bg-wizard-50'
-                                : 'border-ink-100 bg-white hover:border-wizard-200 hover:bg-wizard-50/40',
+                                ? 'border-wizard-400'
+                                : 'border-ink-100 hover:border-wizard-200',
                             )}
                           >
                             <span
                               className={cn(
-                                'flex h-5 w-5 items-center justify-center rounded-md text-[10px] shrink-0',
+                                'flex h-5 w-5 items-center justify-center rounded-md text-[10px] shrink-0 z-10',
                                 sel ? 'bg-wizard-500 text-white' : 'bg-ink-100 text-ink-400',
                               )}
                               aria-hidden
                             >
                               {sel ? '✓' : ''}
                             </span>
-                            <div className="flex-1 min-w-0">
+                            <div className="flex-1 min-w-0 z-10">
                               <div className="font-medium text-sm text-ink-900 leading-tight truncate">
                                 {s.name}
                               </div>
+                              {m && m.attempts > 0 && (
+                                <div className="text-2xs text-ink-500 mt-0.5">
+                                  {masteryLabel(m.mastery)} · {Math.round(m.mastery * 100)}%
+                                </div>
+                              )}
                             </div>
                             <DifficultyDots level={s.intrinsicDifficulty} />
                           </button>
