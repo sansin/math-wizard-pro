@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MASTERY_THRESHOLDS,
+  MIN_ATTEMPTS_FOR_LABEL,
   isTouched,
   masteryBackgroundStyle,
   masteryLabel,
@@ -43,6 +44,73 @@ describe('masteryLabel', () => {
     expect(MASTERY_THRESHOLDS.LEARNING).toBe(0.40);
     expect(MASTERY_THRESHOLDS.FAMILIAR).toBe(0.70);
     expect(MASTERY_THRESHOLDS.SOLID).toBe(0.90);
+  });
+});
+
+describe('masteryLabel — minimum-attempts floors', () => {
+  it('exposes the floor constants', () => {
+    expect(MIN_ATTEMPTS_FOR_LABEL.SOLID).toBe(10);
+    expect(MIN_ATTEMPTS_FOR_LABEL.MASTERED).toBe(15);
+  });
+
+  it('without attempts arg, applies pure mastery thresholds (no floor)', () => {
+    // Backward-compatible: existing callers that don't have attempts info
+    // still work. The floor is opt-in via the second argument.
+    expect(masteryLabel(0.95)).toBe('Mastered');
+    expect(masteryLabel(0.80)).toBe('Solid');
+  });
+
+  // ── Solid floor (10 attempts required) ──
+  it('caps Solid at Familiar when attempts < 10', () => {
+    expect(masteryLabel(0.85, 5)).toBe('Familiar');
+    expect(masteryLabel(0.85, 9)).toBe('Familiar');
+  });
+
+  it('promotes to Solid at exactly 10 attempts', () => {
+    expect(masteryLabel(0.85, 10)).toBe('Solid');
+  });
+
+  it('keeps Solid above the floor', () => {
+    expect(masteryLabel(0.85, 25)).toBe('Solid');
+  });
+
+  // ── Mastered floor (15 attempts required) ──
+  it('caps Mastered at Solid when attempts is 10–14', () => {
+    expect(masteryLabel(0.95, 10)).toBe('Solid');
+    expect(masteryLabel(0.95, 14)).toBe('Solid');
+  });
+
+  it('caps Mastered at Familiar when attempts < 10 (both floors trip)', () => {
+    expect(masteryLabel(0.95, 1)).toBe('Familiar');
+    expect(masteryLabel(0.95, 5)).toBe('Familiar');
+    expect(masteryLabel(0.95, 9)).toBe('Familiar');
+  });
+
+  it('promotes to Mastered at exactly 15 attempts', () => {
+    expect(masteryLabel(0.95, 15)).toBe('Mastered');
+  });
+
+  it('keeps Mastered above the floor', () => {
+    expect(masteryLabel(0.95, 30)).toBe('Mastered');
+  });
+
+  // ── Lower labels are NOT gated by attempts ──
+  it('does not gate Just started, Learning, or Familiar', () => {
+    // These labels reflect "you haven't reached confidence" already, so
+    // there's no need for an attempts floor on them.
+    expect(masteryLabel(0.10, 1)).toBe('Just started');
+    expect(masteryLabel(0.30, 1)).toBe('Learning');
+    expect(masteryLabel(0.50, 1)).toBe('Familiar');
+    // High attempt count doesn't push these higher either:
+    expect(masteryLabel(0.50, 100)).toBe('Familiar');
+  });
+
+  // ── Production scenario: user's `g45.stats.mean` row ──
+  it('regression: 1 correct → Familiar, not Mastered', () => {
+    // The user's reported row had mastery≈1.0 and attempts=1. Even if
+    // mastery somehow stays high after the trigger fix, the label
+    // should not claim "Mastered" with a single attempt.
+    expect(masteryLabel(1.0, 1)).toBe('Familiar');
   });
 });
 

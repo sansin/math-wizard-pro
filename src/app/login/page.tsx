@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Wizard } from '@/components/Wizard';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -34,7 +34,6 @@ function LoginPageInner() {
   const [gradeBand, setGradeBand] = React.useState<GradeBand>('4-5');
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const router = useRouter();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,7 +62,15 @@ function LoginPageInner() {
         const { error } = await sb.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
-      router.push('/practice');
+      // Hard navigation rather than `router.push('/practice')`. With
+      // @supabase/ssr, sign-in writes the session to localStorage but
+      // the cookie that the server component reads is set on a response
+      // — there's a brief window where router.push triggers /practice's
+      // server component BEFORE the cookie has propagated, causing an
+      // instant redirect back to /login (visible as a "page refresh
+      // that doesn't log in"). A full-document navigation guarantees
+      // the next request includes the new cookie.
+      window.location.assign('/practice');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -178,14 +185,28 @@ function LoginPageInner() {
               {mode === 'signup' ? (
                 <>
                   Already have an account?{' '}
-                  <button onClick={() => setMode('login')} className="font-semibold text-wizard-600 hover:text-wizard-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('login');
+                      setError(null);
+                    }}
+                    className="font-semibold text-wizard-600 hover:text-wizard-700 underline-offset-2 hover:underline"
+                  >
                     Sign in
                   </button>
                 </>
               ) : (
                 <>
                   Need an account?{' '}
-                  <button onClick={() => setMode('signup')} className="font-semibold text-wizard-600 hover:text-wizard-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('signup');
+                      setError(null);
+                    }}
+                    className="font-semibold text-wizard-600 hover:text-wizard-700 underline-offset-2 hover:underline"
+                  >
                     Sign up free
                   </button>
                 </>
