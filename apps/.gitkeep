@@ -1,0 +1,10 @@
+# Reserved for application packages.
+#
+# In a future commit, the existing Next.js web app currently living at
+# `<repo-root>/src/` will be moved to `<repo-root>/apps/web/`. The iOS
+# app (Expo) will live at `<repo-root>/apps/mobile/` once development
+# starts.
+#
+# Until then this directory is intentionally empty. The npm workspaces
+# declaration in the root package.json includes `apps/*`, so any
+# package added here is auto-discovered.

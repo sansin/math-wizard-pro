@@ -3,6 +3,10 @@
   "version": "2.0.0",
   "private": true,
   "description": "AI-powered adaptive math learning platform — v2 (Math Wizard Pro)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
