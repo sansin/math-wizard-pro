@@ -1,0 +1,19 @@
+{
+  "name": "@sageon/math-wizard-shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pure-TypeScript modules shared across the Math Wizard Pro web (Next.js) and mobile (Expo) apps. Math verifier, mastery formula, skill grouping, AI router types — anything that has zero React/DOM/Next.js/RN dependencies and can run in any JS environment.",
+  "license": "UNLICENSED",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {},
+  "dependencies": {}
+}

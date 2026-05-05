@@ -1,0 +1,7 @@
+# Tests for shared modules will live here, mirroring the src/ structure:
+#   src/math/verifier.ts → tests/math/verifier.test.ts
+#   src/mastery/formula.ts → tests/mastery/formula.test.ts
+# etc.
+#
+# Currently empty because nothing has been migrated yet. The migration
+# happens in a follow-up commit.
